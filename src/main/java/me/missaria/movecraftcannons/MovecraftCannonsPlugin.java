@@ -18,7 +18,7 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
 
         getLogger().info("MovecraftCannons enabled.");
         getLogger().info("  Cannon translation fix: setOffset() instead of missing move().");
-        getLogger().info("  Health bar: BossBar shown to pilot on craft detect.");
+        getLogger().info("  Health bar: TextDisplay entity above craft, follows movement.");
         if (debug) getLogger().info("  Debug mode ON.");
     }
 
