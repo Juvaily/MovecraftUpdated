@@ -8,12 +8,12 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: ⛏ Checkout
+      - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - name: ⛏ Get changed files
+      - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v35
         with:
@@ -25,7 +25,7 @@ jobs:
             gradlew.bat
             libs/**
 
-      - name: ⛏ Setup Java
+      - name: Setup Java
         if: steps.changed-files.outputs.any_changed == 'true'
         uses: actions/setup-java@v3
         with:
@@ -33,13 +33,13 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: ⛏ Build Plugin
+      - name: Build Plugin
         if: steps.changed-files.outputs.any_changed == 'true'
         run: |
           chmod +x gradlew
           ./gradlew shadowJar --info 2>&1 | tee build.log || (cat build.log && exit 1)
 
-      - name: ⛏ Copy Plugin to Server
+      - name: Copy Plugin to Server
         if: steps.changed-files.outputs.any_changed == 'true'
         uses: appleboy/scp-action@master
         with:
@@ -52,7 +52,7 @@ jobs:
           target: "/laconio/missaria/plugins/"
           strip_components: 2
 
-      - name: ⛏ Restart missaria
+      - name: Restart missaria
         if: steps.changed-files.outputs.any_changed == 'true'
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -63,4 +63,4 @@ jobs:
           port: ${{ secrets.SERVER_PORT }}
           script: |
             docker restart missaria
-            echo "✅ Missaria restarted with new plugin"
+            echo "Missaria restarted with MovecraftCannons"
