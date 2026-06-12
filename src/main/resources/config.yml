@@ -1,0 +1,6 @@
+# MovecraftCannons — Movecraft + Cannons integration
+# Fixes cannon.move() NoSuchMethodError in Cannons 3.4.3 that causes
+# reload progress, ammo and temperature to reset on craft translation.
+
+# Set to true to log every cannon position update to console.
+debug: false
