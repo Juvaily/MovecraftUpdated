@@ -14,9 +14,11 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         debug = getConfig().getBoolean("debug", false);
 
         getServer().getPluginManager().registerEvents(new CraftMoveListener(this), this);
+        getServer().getPluginManager().registerEvents(new HealthBarListener(this), this);
 
         getLogger().info("MovecraftCannons enabled.");
-        getLogger().info("  Fix: cannon.move() missing in Cannons 3.4.3 → using setOffset() instead.");
+        getLogger().info("  Cannon translation fix: setOffset() instead of missing move().");
+        getLogger().info("  Health bar: BossBar shown to pilot on craft detect.");
         if (debug) getLogger().info("  Debug mode ON.");
     }
 
