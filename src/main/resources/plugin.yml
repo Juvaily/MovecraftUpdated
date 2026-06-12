@@ -1,0 +1,9 @@
+name: MovecraftCannons
+version: ${version}
+main: me.missaria.movecraftcannons.MovecraftCannonsPlugin
+api-version: '1.21'
+description: Movecraft + Cannons integration — preserves cannon reload state during craft movement
+author: Missaria
+depend:
+  - Movecraft
+  - Cannons
