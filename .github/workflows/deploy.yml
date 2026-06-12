@@ -21,7 +21,9 @@ jobs:
       - name: Build Plugin
         run: |
           chmod +x gradlew
-          ./gradlew shadowJar 2>&1 | tee build.log || (cat build.log && exit 1)
+          ./gradlew shadowJar
+          echo "=== build/libs contents ==="
+          ls -la build/libs/
 
       - name: Copy Plugin to Server
         uses: appleboy/scp-action@master
@@ -31,7 +33,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE }}
           port: ${{ secrets.SERVER_PORT }}
-          source: "build/libs/MovecraftCannons-*.jar"
+          source: "build/libs/*.jar"
           target: "/laconio/missaria/plugins/"
           strip_components: 2
 
