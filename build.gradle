@@ -25,6 +25,8 @@ repositories {
 
 dependencies {
     compileOnly 'org.spigotmc:spigot-api:1.21.1-R0.1-SNAPSHOT'
+    // JOML is used by Bukkit's Display/Transformation API (TextDisplay health bar)
+    compileOnly 'org.joml:joml:1.10.7'
     // Movecraft-8.0.0.jar and Cannons-3.4.3.jar go into libs/
     compileOnly fileTree(dir: 'libs', include: ['*.jar'])
 }
