@@ -5,7 +5,6 @@ import net.countercraft.movecraft.MovecraftRotation;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -25,10 +24,7 @@ public class WasdListener implements Listener {
     private final MovecraftCannonsPlugin plugin;
 
     // Last detected direction (dx, dz) per player
-    private final Map<UUID, int[]> latestDir  = new ConcurrentHashMap<>();
-    // Timestamp of the last PlayerMoveEvent that updated latestDir
-    private final Map<UUID, Long>  latestTime = new ConcurrentHashMap<>();
-
+    private final Map<UUID, Long> lastMove   = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastRotate = new ConcurrentHashMap<>();
 
     private static final long   ROTATE_DEBOUNCE = 600L;
@@ -36,15 +32,12 @@ public class WasdListener implements Listener {
 
     public WasdListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
-        long ticks = Math.max(1L, plugin.getConfig().getLong("wasd.cooldown_ms", 200L) / 50L);
-        Bukkit.getScheduler().runTaskTimer(plugin, this::tickMovement, 0L, ticks);
     }
 
-    // ── Movement detection ─────────────────────────────────────────────────────
+    // ── WASD: translate directly in the event with per-player cooldown ─────────
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
-        // Ignore Movecraft's teleport-back (pilotLocked return)
         if (event instanceof PlayerTeleportEvent) return;
 
         Location from = event.getFrom();
@@ -57,54 +50,23 @@ public class WasdListener implements Listener {
 
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
-        if (craft == null || !craft.getPilotLocked()) {
-            latestDir.remove(player.getUniqueId());
-            latestTime.remove(player.getUniqueId());
-            return;
-        }
+        if (craft == null || !craft.getPilotLocked()) return;
 
-        int[]  dir = resolveDir(player.getLocation().getYaw(), dx, dz);
-        UUID   uid = player.getUniqueId();
-        latestDir.put(uid, dir);
-        latestTime.put(uid, System.currentTimeMillis());
-    }
+        UUID uid      = player.getUniqueId();
+        long now      = System.currentTimeMillis();
+        long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
+        Long last     = lastMove.get(uid);
+        if (last != null && now - last < cooldown) return;
+        lastMove.put(uid, now);
 
-    // ── Periodic movement tick ─────────────────────────────────────────────────
+        int[] dir = resolveDir(player.getLocation().getYaw(), dx, dz);
+        if (dir[0] == 0 && dir[1] == 0) return;
 
-    private void tickMovement() {
-        long now = System.currentTimeMillis();
-        // TTL is just a safety cleanup — direction is consumed after each translate
-        long ttl = plugin.getConfig().getLong("wasd.cooldown_ms", 200L) * 10;
+        craft.translate(dir[0], 0, dir[1]);
 
-        latestDir.forEach((uid, dir) -> {
-            Long t = latestTime.get(uid);
-            if (t == null || now - t > ttl) {
-                latestDir.remove(uid);
-                latestTime.remove(uid);
-                return;
-            }
-            if (dir[0] == 0 && dir[1] == 0) { latestDir.remove(uid); return; }
-
-            Player player = Bukkit.getPlayer(uid);
-            if (player == null) { latestDir.remove(uid); latestTime.remove(uid); return; }
-
-            PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
-            if (craft == null || !craft.getPilotLocked()) {
-                latestDir.remove(uid);
-                latestTime.remove(uid);
-                return;
-            }
-
-            craft.translate(dir[0], 0, dir[1]);
-            // Consume: one detected move = one craft block. Holding W re-populates
-            // via continuous PlayerMoveEvents; tapping gives exactly one step.
-            latestDir.remove(uid);
-
-            if (plugin.isDebug())
-                plugin.getLogger().info("[wasd] " + player.getName()
-                    + " (" + dir[0] + ",0," + dir[1] + ")"
-                    + " age=" + (now - t) + "ms notProcessing=" + craft.isNotProcessing());
-        });
+        if (plugin.isDebug())
+            plugin.getLogger().info("[wasd] " + player.getName()
+                + " (" + dir[0] + ",0," + dir[1] + ") notProcessing=" + craft.isNotProcessing());
     }
 
     /**

@@ -336,27 +336,26 @@ public class HealthBarListener implements Listener {
         return text.build();
     }
 
-    /** Label for a moveblock/flyblock entry: custom name → RU_NAMES → fallback. */
+    /** Label for a moveblock/flyblock entry: RU_NAMES (materials) → custom name → fallback. */
     private String entryLabel(RequiredBlockEntry entry) {
+        // Always try material lookup first — gives Russian name if available
+        try {
+            var mats = new ArrayList<>(entry.getMaterials());
+            if (!mats.isEmpty()) {
+                Material first = (Material) mats.get(0);
+                String ru = RU_NAMES.get(first);
+                if (ru != null)
+                    return mats.size() > 1 ? ru + " +" + (mats.size() - 1) : ru;
+                // Not in map — fall through to entry name or raw material name
+                String custom = entry.getName();
+                if (custom != null && !custom.isBlank()) return custom;
+                String raw = first.name().replace('_', ' ').toLowerCase();
+                return mats.size() > 1 ? raw + " +" + (mats.size() - 1) : raw;
+            }
+        } catch (Exception ignored) {}
+
         String n = entry.getName();
-        if (n != null && !n.isBlank()) {
-            // Custom name might be a Material enum key (e.g. "OAK_LOG") — translate it
-            try {
-                Material mat = Material.valueOf(n.toUpperCase());
-                String ru = RU_NAMES.get(mat);
-                if (ru != null) return ru;
-            } catch (IllegalArgumentException ignored) {}
-            return n;
-        }
-
-        var mats = new ArrayList<>(entry.getMaterials());
-        if (mats.isEmpty()) return "Блок";
-
-        Material first = mats.get(0);
-        String name = RU_NAMES.getOrDefault(first,
-                first.name().replace('_', ' ').toLowerCase());
-        if (mats.size() > 1) name += " +" + (mats.size() - 1);
-        return name;
+        return (n != null && !n.isBlank()) ? n : "Блок";
     }
 
     private String craftTitle(Craft craft) {
