@@ -157,13 +157,18 @@ public class HealthBarListener implements Listener {
 
     // ── Scan (single pass) ────────────────────────────────────────────────────
 
-    /** Returns [blockCount, onFire (0/1), moveBlockCount]. */
+    /**
+     * Returns [blockCount, onFire (0/1), moveBlockCount].
+     * Only counts blocks whose material is in the craft's ALLOWED_BLOCKS set,
+     * so water/fire filling destroyed positions is excluded.
+     */
     private int[] scanCraft(Craft craft, EnumSet<Material> moveMats) {
+        EnumSet<Material> allowed = allowedMaterials(craft);
         World world = craft.getWorld();
         int blocks = 0, fire = 0, move = 0;
         for (var loc : craft.getHitBox()) {
             Material m = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ()).getType();
-            if (!m.isAir()) blocks++;
+            if (allowed != null ? allowed.contains(m) : !m.isAir()) blocks++;
             if (m == Material.FIRE || m == Material.SOUL_FIRE) fire = 1;
             if (moveMats != null && moveMats.contains(m)) move++;
             if (fire == 0) {
@@ -174,24 +179,53 @@ public class HealthBarListener implements Listener {
         return new int[]{blocks, fire, move};
     }
 
+    private EnumSet<Material> allowedMaterials(Craft craft) {
+        try {
+            EnumSet<Material> s = craft.getType().getMaterialSetProperty(CraftType.ALLOWED_BLOCKS);
+            if (s != null && !s.isEmpty()) return s;
+        } catch (Exception ignored) {}
+        return null;
+    }
+
     /** Collects all materials from the craft type's moveBlocks required-block entries. */
     @SuppressWarnings("unchecked")
     private EnumSet<Material> moveBlockMaterials(Craft craft) {
+        // Try required-block entries (percentage format: ">0:WOOL")
         try {
             Set<RequiredBlockEntry> entries =
                     (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS);
-            if (entries == null || entries.isEmpty()) return null;
-            EnumSet<Material> result = EnumSet.noneOf(Material.class);
-            for (RequiredBlockEntry entry : entries) {
-                Set<?> mats = entry.getMaterials();
-                for (Object o : mats) {
-                    if (o instanceof Material mat) result.add(mat);
+            if (entries != null && !entries.isEmpty()) {
+                EnumSet<Material> result = EnumSet.noneOf(Material.class);
+                for (RequiredBlockEntry entry : entries) {
+                    for (Object o : entry.getMaterials()) {
+                        if (o instanceof Material mat) result.add(mat);
+                    }
+                }
+                if (!result.isEmpty()) {
+                    if (plugin.isDebug())
+                        plugin.getLogger().info("[moveblocks] required-block entries: " + result);
+                    return result;
                 }
             }
-            return result.isEmpty() ? null : result;
-        } catch (Exception ignored) {
-            return null;
+        } catch (Exception e) {
+            if (plugin.isDebug())
+                plugin.getLogger().info("[moveblocks] getRequiredBlockProperty failed: " + e.getMessage());
         }
+        // Try simple material set (plain list format)
+        try {
+            EnumSet<Material> s = craft.getType().getMaterialSetProperty(CraftType.MOVE_BLOCKS);
+            if (s != null && !s.isEmpty()) {
+                if (plugin.isDebug())
+                    plugin.getLogger().info("[moveblocks] material-set: " + s);
+                return s;
+            }
+        } catch (Exception e) {
+            if (plugin.isDebug())
+                plugin.getLogger().info("[moveblocks] getMaterialSetProperty failed: " + e.getMessage());
+        }
+        if (plugin.isDebug())
+            plugin.getLogger().info("[moveblocks] no move blocks found for craft type");
+        return null;
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
