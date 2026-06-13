@@ -1,7 +1,7 @@
 package me.missaria.movecraftcannons;
 
 import net.countercraft.movecraft.craft.Craft;
-import net.countercraft.movecraft.craft.PilotedCraft;
+import net.countercraft.movecraft.events.CraftCollisionExplosionEvent;
 import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.events.CraftRotateEvent;
@@ -31,12 +31,9 @@ public class HealthBarListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
 
-    // craft UUID → TextDisplay entity floating above the craft
-    private final Map<UUID, TextDisplay> displays = new ConcurrentHashMap<>();
-    // craft UUID → Craft reference for the periodic health update
+    private final Map<UUID, TextDisplay> displays     = new ConcurrentHashMap<>();
     private final Map<UUID, Craft>       activeCrafts = new ConcurrentHashMap<>();
 
-    // Scale for the display entity — 2.5× makes it readable from ~40–80 blocks away
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
             new AxisAngle4f(0, 0, 0, 1),
@@ -46,29 +43,27 @@ public class HealthBarListener implements Listener {
 
     public HealthBarListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
-        // Refresh text every 10 ticks (0.5 s) to pick up block loss from combat
         Bukkit.getScheduler().runTaskTimer(plugin, this::updateAll, 20L, 10L);
     }
 
-    // ── Craft lifecycle ───────────────────────────────────────────────────────
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDetect(CraftDetectEvent event) {
         Craft craft = event.getCraft();
-        UUID uid   = craft.getUUID();
-        int orig   = craft.getOrigBlockCount();
-        int curr   = craft.getHitBox().size();
+        UUID uid    = craft.getUUID();
+        int  orig   = craft.getOrigBlockCount();
+        int  curr   = countBlocks(craft);
         if (orig <= 0) orig = curr;
 
         Location pos = above(craft.getHitBox(), craft.getWorld());
-
         int finalOrig = orig;
         TextDisplay disp = pos.getWorld().spawn(pos, TextDisplay.class, e -> {
-            e.setBillboard(Display.Billboard.CENTER); // always faces the viewer
+            e.setBillboard(Display.Billboard.CENTER);
             e.setDefaultBackground(false);
             e.setShadowed(true);
-            e.setPersistent(false);  // not saved to disk
-            e.setViewRange(1.5f);   // ~96 blocks visibility
+            e.setPersistent(false);
+            e.setViewRange(1.5f);
             e.setTransformation(SCALE);
             e.text(buildText(craft, curr, finalOrig));
         });
@@ -93,13 +88,18 @@ public class HealthBarListener implements Listener {
         Bukkit.getScheduler().runTaskLater(plugin, () -> remove(uid), 100L);
     }
 
+    // ── Combat block loss ─────────────────────────────────────────────────────
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCollisionExplosion(CraftCollisionExplosionEvent event) {
+        UUID uid = event.getCraft().getUUID();
+        if (!displays.containsKey(uid)) return;
+        // Schedule 1 tick later so blocks are physically removed first
+        Bukkit.getScheduler().runTaskLater(plugin, () -> refreshDisplay(uid), 1L);
+    }
+
     // ── Follow craft movement ─────────────────────────────────────────────────
 
-    /**
-     * CraftTranslateEvent fires BEFORE blocks physically move,
-     * but getNewHitBox() gives us the destination — teleport to it immediately.
-     * The sub-tick visual gap is imperceptible.
-     */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onTranslate(CraftTranslateEvent event) {
         TextDisplay disp = displays.get(event.getCraft().getUUID());
@@ -120,13 +120,19 @@ public class HealthBarListener implements Listener {
         activeCrafts.forEach((uid, craft) -> {
             TextDisplay disp = displays.get(uid);
             if (disp == null || !disp.isValid()) { remove(uid); return; }
-
-            int orig = craft.getOrigBlockCount();
-            int curr = craft.getHitBox().size();
-            if (orig <= 0) orig = curr;
-
-            disp.text(buildText(craft, curr, orig));
+            refreshDisplay(uid);
         });
+    }
+
+    private void refreshDisplay(UUID uid) {
+        Craft craft = activeCrafts.get(uid);
+        TextDisplay disp = displays.get(uid);
+        if (craft == null || disp == null || !disp.isValid()) return;
+
+        int orig = craft.getOrigBlockCount();
+        int curr = countBlocks(craft);
+        if (orig <= 0) orig = curr;
+        disp.text(buildText(craft, curr, orig));
     }
 
     private void remove(UUID uid) {
@@ -135,9 +141,20 @@ public class HealthBarListener implements Listener {
         if (disp != null && disp.isValid()) disp.remove();
     }
 
-    // ── Position ──────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /** 4 blocks above the highest point of the craft's hitbox, horizontally centred. */
+    /** Count non-air blocks actually present in the world within the craft's hitbox. */
+    private int countBlocks(Craft craft) {
+        World world = craft.getWorld();
+        int count = 0;
+        for (var loc : craft.getHitBox()) {
+            if (!world.getBlockAt(loc.getX(), loc.getY(), loc.getZ()).getType().isAir()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     private Location above(HitBox box, World world) {
         double x = (box.getMinX() + box.getMaxX()) / 2.0;
         double y = box.getMaxY() + 4.0;
@@ -145,11 +162,9 @@ public class HealthBarListener implements Listener {
         return new Location(world, x, y, z);
     }
 
-    // ── Text content ──────────────────────────────────────────────────────────
-
     private Component buildText(Craft craft, int curr, int orig) {
         double pct    = frac(curr, orig) * 100;
-        int filled    = (int) Math.round(frac(curr, orig) * 10);
+        int    filled = (int) Math.round(frac(curr, orig) * 10);
 
         NamedTextColor hColor = pct > 60 ? NamedTextColor.GREEN
                               : pct > 30 ? NamedTextColor.YELLOW
@@ -159,7 +174,7 @@ public class HealthBarListener implements Listener {
         String emptyBar  = "░".repeat(10 - filled);
 
         return Component.text()
-                .append(Component.text("⚓ " + name(craft))
+                .append(Component.text("⚓ " + typeName(craft))
                         .color(NamedTextColor.GOLD)
                         .decoration(TextDecoration.BOLD, true))
                 .appendNewline()
@@ -170,10 +185,12 @@ public class HealthBarListener implements Listener {
                 .build();
     }
 
-    private String name(Craft craft) {
+    private String typeName(Craft craft) {
         try {
-            String n = craft.getName();
-            if (n != null && !n.isBlank()) return n;
+            String n = craft.getType().getName();
+            if (n != null && !n.isBlank()) {
+                return n.substring(0, 1).toUpperCase() + n.substring(1);
+            }
         } catch (Exception ignored) {}
         return "Транспорт";
     }
