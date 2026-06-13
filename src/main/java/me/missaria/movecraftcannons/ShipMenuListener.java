@@ -1,8 +1,11 @@
 package me.missaria.movecraftcannons;
 
 import net.countercraft.movecraft.CruiseDirection;
+import net.countercraft.movecraft.MovecraftLocation;
+import net.countercraft.movecraft.MovecraftRotation;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
+import net.countercraft.movecraft.util.hitboxes.HitBox;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -76,49 +79,68 @@ public class ShipMenuListener implements Listener {
 
     // ── Build and open the inventory ───────────────────────────────────────────
 
+    /*
+     * Layout (27 slots = 3×9):
+     *
+     *  [RotL] [  N  ] [RotR]  [ ] [Release] [ ] [ ] [ ] [ ]
+     *  [ W  ] [Stop ] [  E ]  [ ] [        ] [ ] [ ] [ ] [ ]
+     *  [  ↑ ] [  S  ] [  ↓ ]  [ ] [        ] [ ] [ ] [ ] [ ]
+     *
+     * Slots 0-2:  Rotate-L / Cruise-N / Rotate-R
+     * Slot  4:    Release
+     * Slot  9:    Cruise-W
+     * Slot  10:   Cruise Stop
+     * Slot  11:   Cruise-E
+     * Slot  18:   Cruise Up
+     * Slot  19:   Cruise S
+     * Slot  20:   Cruise Down
+     */
     @SuppressWarnings("unchecked")
     private void openMenu(Player player, PlayerCraft craft) {
-        String title = craftTitle(craft);
         ShipMenuHolder holder = new ShipMenuHolder();
         Inventory inv = Bukkit.createInventory(holder, 27,
-                Component.text("⚓ " + title).color(NamedTextColor.DARK_AQUA));
+                Component.text("⚓ " + craftTitle(craft)).color(NamedTextColor.DARK_AQUA));
         holder.setInventory(inv);
 
         Consumer<Player>[] actions = new Consumer[27];
+        CruiseDirection curDir = craft.getCruising() ? craft.getCruiseDirection() : CruiseDirection.NONE;
 
-        // ── Row 0: Cruise N / Helm / Cruise toggle OFF ─────────────────────
-        boolean cruising  = craft.getCruising();
-        CruiseDirection curDir = craft.getCruiseDirection();
+        // Row 0
+        setSlot(inv, actions, 0,
+                item(Material.SPECTRAL_ARROW, "§e↺ Поворот влево",  "Повернуть судно против часовой стрелки"),
+                p -> rotateCraft(p, craft, MovecraftRotation.ANTICLOCKWISE));
 
         setSlot(inv, actions, 1, cruiseItem(craft, CruiseDirection.NORTH, curDir),
                 p -> setCruise(p, craft, CruiseDirection.NORTH));
 
-        Block helmSign = findSign(craft, "[helm]");
-        setSlot(inv, actions, 4, item(Material.NAME_TAG, "§b⛵ Штурвал", "Прямое управление (Direct Control)"),
-                helmSign != null ? p -> simulateClick(p, helmSign) : null);
-
-        setSlot(inv, actions, 7, item(Material.BARRIER, "§cОстановить крейсер", "Отключить крейсерский режим"),
-                p -> stopCruise(craft));
-
-        // ── Row 1: W / Release / E ─────────────────────────────────────────
-        setSlot(inv, actions, 9, cruiseItem(craft, CruiseDirection.WEST, curDir),
-                p -> setCruise(p, craft, CruiseDirection.WEST));
+        setSlot(inv, actions, 2,
+                item(Material.SPECTRAL_ARROW, "§e↻ Поворот вправо", "Повернуть судно по часовой стрелке"),
+                p -> rotateCraft(p, craft, MovecraftRotation.CLOCKWISE));
 
         Block releaseSign = findSign(craft, "Release");
-        setSlot(inv, actions, 13, item(Material.RED_BED, "§4Покинуть судно", "Отпустить транспорт"),
+        setSlot(inv, actions, 4,
+                item(Material.RED_BED, "§4Покинуть судно", "Остановить крейсер и покинуть транспорт"),
                 p -> doRelease(p, craft, releaseSign));
 
-        setSlot(inv, actions, 17, cruiseItem(craft, CruiseDirection.EAST, curDir),
+        // Row 1
+        setSlot(inv, actions, 9,  cruiseItem(craft, CruiseDirection.WEST, curDir),
+                p -> setCruise(p, craft, CruiseDirection.WEST));
+
+        setSlot(inv, actions, 10,
+                item(Material.BARRIER, "§cОстановить крейсер", "Отключить крейсерский режим"),
+                p -> stopCruise(craft));
+
+        setSlot(inv, actions, 11, cruiseItem(craft, CruiseDirection.EAST, curDir),
                 p -> setCruise(p, craft, CruiseDirection.EAST));
 
-        // ── Row 2: Cruise UP / Cruise S / Cruise DOWN ─────────────────────
-        setSlot(inv, actions, 19, cruiseItem(craft, CruiseDirection.UP, curDir),
+        // Row 2
+        setSlot(inv, actions, 18, cruiseItem(craft, CruiseDirection.UP, curDir),
                 p -> setCruise(p, craft, CruiseDirection.UP));
 
-        setSlot(inv, actions, 22, cruiseItem(craft, CruiseDirection.SOUTH, curDir),
+        setSlot(inv, actions, 19, cruiseItem(craft, CruiseDirection.SOUTH, curDir),
                 p -> setCruise(p, craft, CruiseDirection.SOUTH));
 
-        setSlot(inv, actions, 25, cruiseItem(craft, CruiseDirection.DOWN, curDir),
+        setSlot(inv, actions, 20, cruiseItem(craft, CruiseDirection.DOWN, curDir),
                 p -> setCruise(p, craft, CruiseDirection.DOWN));
 
         menuActions.put(player.getUniqueId(), actions);
@@ -154,7 +176,7 @@ public class ShipMenuListener implements Listener {
 
     private void setCruise(Player player, PlayerCraft craft, CruiseDirection dir) {
         if (craft.getCruising() && craft.getCruiseDirection() == dir) {
-            craft.setCruising(false); // toggle off if already active
+            craft.setCruising(false);
         } else {
             craft.setCruiseDirection(dir);
             craft.setCruising(true);
@@ -165,11 +187,22 @@ public class ShipMenuListener implements Listener {
         craft.setCruising(false);
     }
 
+    private void rotateCraft(Player player, PlayerCraft craft, MovecraftRotation rotation) {
+        HitBox hb = craft.getHitBox();
+        craft.rotate(rotation, new MovecraftLocation(
+                (hb.getMinX() + hb.getMaxX()) / 2,
+                (hb.getMinY() + hb.getMaxY()) / 2,
+                (hb.getMinZ() + hb.getMaxZ()) / 2
+        ));
+    }
+
     private void doRelease(Player player, PlayerCraft craft, Block releaseSign) {
+        // Always stop cruise first
+        craft.setCruising(false);
+
         if (releaseSign != null) {
             simulateClick(player, releaseSign);
         } else {
-            // Fire CraftReleaseEvent via Movecraft's release mechanism
             net.countercraft.movecraft.events.CraftReleaseEvent e =
                     new net.countercraft.movecraft.events.CraftReleaseEvent(
                             craft,
