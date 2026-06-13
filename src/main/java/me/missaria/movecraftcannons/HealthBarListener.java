@@ -282,8 +282,7 @@ public class HealthBarListener implements Listener {
 
         var text = Component.text()
                 .append(Component.text(craftTitle(craft))
-                        .color(NamedTextColor.GOLD)
-                        .decoration(TextDecoration.BOLD, true))
+                        .color(NamedTextColor.GOLD))
                 .appendNewline()
                 .append(Component.text("█".repeat(filled)).color(hColor))
                 .append(Component.text("░".repeat(10 - filled)).color(NamedTextColor.DARK_GRAY))
