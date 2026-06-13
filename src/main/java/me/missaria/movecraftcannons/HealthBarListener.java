@@ -336,17 +336,23 @@ public class HealthBarListener implements Listener {
         return text.build();
     }
 
-    /** Label for a moveblock entry: custom name → Russian material name → fallback. */
+    /** Label for a moveblock/flyblock entry: custom name → RU_NAMES → fallback. */
     private String entryLabel(RequiredBlockEntry entry) {
         String n = entry.getName();
-        if (n != null && !n.isBlank()) return n;
+        if (n != null && !n.isBlank()) {
+            // Custom name might be a Material enum key (e.g. "OAK_LOG") — translate it
+            try {
+                Material mat = Material.valueOf(n.toUpperCase());
+                String ru = RU_NAMES.get(mat);
+                if (ru != null) return ru;
+            } catch (IllegalArgumentException ignored) {}
+            return n;
+        }
 
         var mats = new ArrayList<>(entry.getMaterials());
         if (mats.isEmpty()) return "Блок";
 
-        Material first = (mats.get(0) instanceof Material m) ? m : null;
-        if (first == null) return "Блок";
-
+        Material first = mats.get(0);
         String name = RU_NAMES.getOrDefault(first,
                 first.name().replace('_', ' ').toLowerCase());
         if (mats.size() > 1) name += " +" + (mats.size() - 1);
@@ -442,10 +448,91 @@ public class HealthBarListener implements Listener {
         RU_NAMES.put(Material.BLAST_FURNACE, "Доменная печь");
         RU_NAMES.put(Material.SMOKER,      "Коптильня");
         // Sails / banners
-        RU_NAMES.put(Material.WHITE_BANNER,  "Белое знамя");
-        RU_NAMES.put(Material.BLACK_BANNER,  "Чёрное знамя");
-        RU_NAMES.put(Material.BLUE_BANNER,   "Синее знамя");
-        RU_NAMES.put(Material.RED_BANNER,    "Красное знамя");
-        RU_NAMES.put(Material.YELLOW_BANNER, "Жёлтое знамя");
+        RU_NAMES.put(Material.WHITE_BANNER,   "Белое знамя");
+        RU_NAMES.put(Material.BLACK_BANNER,   "Чёрное знамя");
+        RU_NAMES.put(Material.BLUE_BANNER,    "Синее знамя");
+        RU_NAMES.put(Material.RED_BANNER,     "Красное знамя");
+        RU_NAMES.put(Material.YELLOW_BANNER,  "Жёлтое знамя");
+        RU_NAMES.put(Material.GREEN_BANNER,   "Зелёное знамя");
+        RU_NAMES.put(Material.BROWN_BANNER,   "Коричневое знамя");
+        RU_NAMES.put(Material.PURPLE_BANNER,  "Фиолетовое знамя");
+        RU_NAMES.put(Material.CYAN_BANNER,    "Бирюзовое знамя");
+        RU_NAMES.put(Material.ORANGE_BANNER,  "Оранжевое знамя");
+        RU_NAMES.put(Material.MAGENTA_BANNER, "Пурпурное знамя");
+        RU_NAMES.put(Material.LIGHT_BLUE_BANNER, "Голубое знамя");
+        RU_NAMES.put(Material.LIME_BANNER,    "Лаймовое знамя");
+        RU_NAMES.put(Material.PINK_BANNER,    "Розовое знамя");
+        RU_NAMES.put(Material.GRAY_BANNER,    "Серое знамя");
+        RU_NAMES.put(Material.LIGHT_GRAY_BANNER, "Светло-серое знамя");
+        // Stripped logs
+        RU_NAMES.put(Material.STRIPPED_OAK_LOG,      "Очищ. дубовое бревно");
+        RU_NAMES.put(Material.STRIPPED_SPRUCE_LOG,   "Очищ. еловое бревно");
+        RU_NAMES.put(Material.STRIPPED_BIRCH_LOG,    "Очищ. берёзовое бревно");
+        RU_NAMES.put(Material.STRIPPED_JUNGLE_LOG,   "Очищ. тропическое бревно");
+        RU_NAMES.put(Material.STRIPPED_ACACIA_LOG,   "Очищ. акациевое бревно");
+        RU_NAMES.put(Material.STRIPPED_DARK_OAK_LOG, "Очищ. тёмно-дубовое бревно");
+        RU_NAMES.put(Material.STRIPPED_MANGROVE_LOG, "Очищ. мангровое бревно");
+        RU_NAMES.put(Material.STRIPPED_CHERRY_LOG,   "Очищ. вишнёвое бревно");
+        // Processed wood (rotated logs)
+        RU_NAMES.put(Material.OAK_WOOD,      "Дубовая древесина");
+        RU_NAMES.put(Material.SPRUCE_WOOD,   "Еловая древесина");
+        RU_NAMES.put(Material.BIRCH_WOOD,    "Берёзовая древесина");
+        RU_NAMES.put(Material.JUNGLE_WOOD,   "Тропическая древесина");
+        RU_NAMES.put(Material.ACACIA_WOOD,   "Акациевая древесина");
+        RU_NAMES.put(Material.DARK_OAK_WOOD, "Тёмно-дубовая древесина");
+        RU_NAMES.put(Material.STRIPPED_OAK_WOOD,      "Очищ. дубовая древесина");
+        RU_NAMES.put(Material.STRIPPED_SPRUCE_WOOD,   "Очищ. еловая древесина");
+        RU_NAMES.put(Material.STRIPPED_DARK_OAK_WOOD, "Очищ. тёмно-дубовая древесина");
+        // Concrete
+        RU_NAMES.put(Material.WHITE_CONCRETE,      "Белый бетон");
+        RU_NAMES.put(Material.ORANGE_CONCRETE,     "Оранжевый бетон");
+        RU_NAMES.put(Material.MAGENTA_CONCRETE,    "Пурпурный бетон");
+        RU_NAMES.put(Material.LIGHT_BLUE_CONCRETE, "Голубой бетон");
+        RU_NAMES.put(Material.YELLOW_CONCRETE,     "Жёлтый бетон");
+        RU_NAMES.put(Material.LIME_CONCRETE,       "Лаймовый бетон");
+        RU_NAMES.put(Material.PINK_CONCRETE,       "Розовый бетон");
+        RU_NAMES.put(Material.GRAY_CONCRETE,       "Серый бетон");
+        RU_NAMES.put(Material.LIGHT_GRAY_CONCRETE, "Светло-серый бетон");
+        RU_NAMES.put(Material.CYAN_CONCRETE,       "Бирюзовый бетон");
+        RU_NAMES.put(Material.PURPLE_CONCRETE,     "Фиолетовый бетон");
+        RU_NAMES.put(Material.BLUE_CONCRETE,       "Синий бетон");
+        RU_NAMES.put(Material.BROWN_CONCRETE,      "Коричневый бетон");
+        RU_NAMES.put(Material.GREEN_CONCRETE,      "Зелёный бетон");
+        RU_NAMES.put(Material.RED_CONCRETE,        "Красный бетон");
+        RU_NAMES.put(Material.BLACK_CONCRETE,      "Чёрный бетон");
+        // Terracotta
+        RU_NAMES.put(Material.TERRACOTTA,          "Терракота");
+        RU_NAMES.put(Material.WHITE_TERRACOTTA,    "Белая терракота");
+        RU_NAMES.put(Material.ORANGE_TERRACOTTA,   "Оранжевая терракота");
+        RU_NAMES.put(Material.YELLOW_TERRACOTTA,   "Жёлтая терракота");
+        RU_NAMES.put(Material.RED_TERRACOTTA,      "Красная терракота");
+        RU_NAMES.put(Material.BROWN_TERRACOTTA,    "Коричневая терракота");
+        RU_NAMES.put(Material.GRAY_TERRACOTTA,     "Серая терракота");
+        RU_NAMES.put(Material.LIGHT_GRAY_TERRACOTTA, "Светло-серая терракота");
+        RU_NAMES.put(Material.CYAN_TERRACOTTA,     "Бирюзовая терракота");
+        RU_NAMES.put(Material.BLUE_TERRACOTTA,     "Синяя терракота");
+        RU_NAMES.put(Material.GREEN_TERRACOTTA,    "Зелёная терракота");
+        RU_NAMES.put(Material.BLACK_TERRACOTTA,    "Чёрная терракота");
+        // Other ship blocks
+        RU_NAMES.put(Material.DIRT,              "Земля");
+        RU_NAMES.put(Material.COARSE_DIRT,       "Грубая земля");
+        RU_NAMES.put(Material.CLAY,              "Глина");
+        RU_NAMES.put(Material.BRICKS,            "Кирпич");
+        RU_NAMES.put(Material.NETHER_BRICKS,     "Адский кирпич");
+        RU_NAMES.put(Material.DEEPSLATE,         "Глубинный сланец");
+        RU_NAMES.put(Material.COBBLED_DEEPSLATE, "Булыжный глубинный сланец");
+        RU_NAMES.put(Material.MUD_BRICKS,        "Грязевой кирпич");
+        RU_NAMES.put(Material.PACKED_MUD,        "Утрамбованная грязь");
+        RU_NAMES.put(Material.HAY_BLOCK,         "Сено");
+        RU_NAMES.put(Material.DRIED_KELP_BLOCK,  "Высушенная ламинария");
+        RU_NAMES.put(Material.COAL_BLOCK,        "Блок угля");
+        RU_NAMES.put(Material.SPONGE,            "Губка");
+        RU_NAMES.put(Material.WET_SPONGE,        "Мокрая губка");
+        RU_NAMES.put(Material.ICE,               "Лёд");
+        RU_NAMES.put(Material.PACKED_ICE,        "Упакованный лёд");
+        RU_NAMES.put(Material.BLUE_ICE,          "Синий лёд");
+        RU_NAMES.put(Material.HONEYCOMB_BLOCK,   "Блок сот");
+        RU_NAMES.put(Material.BAMBOO_BLOCK,      "Бамбуковый блок");
+        RU_NAMES.put(Material.STRIPPED_BAMBOO_BLOCK, "Очищ. бамбуковый блок");
     }
 }

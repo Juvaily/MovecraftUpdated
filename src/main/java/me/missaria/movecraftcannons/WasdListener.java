@@ -72,11 +72,9 @@ public class WasdListener implements Listener {
     // ── Periodic movement tick ─────────────────────────────────────────────────
 
     private void tickMovement() {
-        long now      = System.currentTimeMillis();
-        long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
-        // Keep last direction for 5× period. When blocked by a wall the player
-        // sends no move events, so we coast briefly in the last known direction.
-        long ttl = cooldown * 5;
+        long now = System.currentTimeMillis();
+        // TTL is just a safety cleanup — direction is consumed after each translate
+        long ttl = plugin.getConfig().getLong("wasd.cooldown_ms", 200L) * 10;
 
         latestDir.forEach((uid, dir) -> {
             Long t = latestTime.get(uid);
@@ -85,7 +83,7 @@ public class WasdListener implements Listener {
                 latestTime.remove(uid);
                 return;
             }
-            if (dir[0] == 0 && dir[1] == 0) return;
+            if (dir[0] == 0 && dir[1] == 0) { latestDir.remove(uid); return; }
 
             Player player = Bukkit.getPlayer(uid);
             if (player == null) { latestDir.remove(uid); latestTime.remove(uid); return; }
@@ -98,6 +96,9 @@ public class WasdListener implements Listener {
             }
 
             craft.translate(dir[0], 0, dir[1]);
+            // Consume: one detected move = one craft block. Holding W re-populates
+            // via continuous PlayerMoveEvents; tapping gives exactly one step.
+            latestDir.remove(uid);
 
             if (plugin.isDebug())
                 plugin.getLogger().info("[wasd] " + player.getName()
