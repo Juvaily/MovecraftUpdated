@@ -281,7 +281,7 @@ public class HealthBarListener implements Listener {
                               : NamedTextColor.RED;
 
         var text = Component.text()
-                .append(Component.text(typeName(craft))
+                .append(Component.text(craftTitle(craft))
                         .color(NamedTextColor.GOLD)
                         .decoration(TextDecoration.BOLD, true))
                 .appendNewline()
@@ -354,7 +354,13 @@ public class HealthBarListener implements Listener {
         return name;
     }
 
-    private String typeName(Craft craft) {
+    private String craftTitle(Craft craft) {
+        // Individual craft name (set on the control sign) takes priority
+        try {
+            String n = craft.getName();
+            if (n != null && !n.isBlank()) return n;
+        } catch (Exception ignored) {}
+        // Fall back to craft type name
         try {
             String n = craft.getType().getStringProperty(CraftType.NAME);
             if (n != null && !n.isBlank()) return n;
