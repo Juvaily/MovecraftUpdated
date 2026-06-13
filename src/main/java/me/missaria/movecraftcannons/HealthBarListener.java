@@ -168,12 +168,22 @@ public class HealthBarListener implements Listener {
         int blocks = 0, fire = 0, move = 0;
         for (var loc : craft.getHitBox()) {
             Material m = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ()).getType();
-            if (allowed != null ? allowed.contains(m) : !m.isAir()) blocks++;
-            if (m == Material.FIRE || m == Material.SOUL_FIRE) fire = 1;
-            if (moveMats != null && moveMats.contains(m)) move++;
+            // Always exclude fluids and fire — they fill in after block loss and aren't craft blocks
+            boolean isFluidOrFire = m == Material.WATER || m == Material.LAVA
+                    || m == Material.FIRE || m == Material.SOUL_FIRE
+                    || m == Material.CAVE_AIR || m == Material.VOID_AIR;
+            if (!isFluidOrFire) {
+                if (allowed != null ? allowed.contains(m) : !m.isAir()) blocks++;
+                if (moveMats != null && moveMats.contains(m)) move++;
+            }
             if (fire == 0) {
-                Material above = world.getBlockAt(loc.getX(), loc.getY() + 1, loc.getZ()).getType();
-                if (above == Material.FIRE || above == Material.SOUL_FIRE) fire = 1;
+                // Check position itself and the block above for fire
+                if (m == Material.FIRE || m == Material.SOUL_FIRE) {
+                    fire = 1;
+                } else {
+                    Material above = world.getBlockAt(loc.getX(), loc.getY() + 1, loc.getZ()).getType();
+                    if (above == Material.FIRE || above == Material.SOUL_FIRE) fire = 1;
+                }
             }
         }
         return new int[]{blocks, fire, move};

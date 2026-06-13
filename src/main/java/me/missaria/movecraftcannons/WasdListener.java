@@ -97,9 +97,14 @@ public class WasdListener implements Listener {
         int tdx = 0, tdz = 0;
         if (Math.abs(dx) >= Math.abs(dz)) tdx = dx > 0 ? 1 : -1;
         else                               tdz = dz > 0 ? 1 : -1;
-        craft.translate(tdx, 0, tdz);
+
         if (plugin.isDebug())
-            plugin.getLogger().info("[wasd] " + player.getName() + " translate (" + tdx + ",0," + tdz + ")");
+            plugin.getLogger().info("[wasd] " + player.getName()
+                + " translate (" + tdx + ",0," + tdz + ")"
+                + " notProcessing=" + craft.isNotProcessing());
+
+        // World-overload matches the internal BaseCraft dispatch path
+        craft.translate(craft.getWorld(), tdx, 0, tdz);
     }
 
     // Q = rotate left
