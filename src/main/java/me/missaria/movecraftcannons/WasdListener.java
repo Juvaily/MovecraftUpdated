@@ -141,10 +141,9 @@ public class WasdListener implements Listener {
     private void tick() {
         long now      = System.currentTimeMillis();
         long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
-        // With near-zero speed the client sends events every tick while key is held.
-        // Use a generous TTL (3s) so the ship keeps moving through brief movement gaps,
-        // but stops promptly (~3s) after the key is actually released.
-        long ttl = 3000L;
+        // Near-zero speed means events fire every tick (~50ms) while key is held.
+        // TTL of 150ms = 3 ticks: ship stops almost immediately when key is released.
+        long ttl = 150L;
 
         latestDir.forEach((uid, dir) -> {
             Long t = latestTime.get(uid);

@@ -105,16 +105,20 @@ public class ShipMenuListener implements Listener {
         Consumer<Player>[] actions = new Consumer[27];
         CruiseDirection curDir = craft.getCruising() ? craft.getCruiseDirection() : CruiseDirection.NONE;
 
-        // Row 0
+        // Relative directions based on pilot's current yaw
+        CruiseDirection[] rel = relDirs(player.getLocation().getYaw());
+        CruiseDirection fwd  = rel[0], bwd = rel[1], lft = rel[2], rgt = rel[3];
+
+        // Row 0: RotL / Forward / RotR  |  _ / Release / _
         setSlot(inv, actions, 0,
-                item(Material.SPECTRAL_ARROW, "§e↺ Поворот влево",  "Повернуть судно против часовой стрелки"),
+                item(Material.SPECTRAL_ARROW, "§e↺ Поворот влево",  "Повернуть против часовой стрелки"),
                 p -> rotateCraft(p, craft, MovecraftRotation.ANTICLOCKWISE));
 
-        setSlot(inv, actions, 1, cruiseItem(craft, CruiseDirection.NORTH, curDir),
-                p -> setCruise(p, craft, CruiseDirection.NORTH));
+        setSlot(inv, actions, 1, relCruiseItem(craft, fwd, curDir, "Вперёд"),
+                p -> setCruise(p, craft, fwd));
 
         setSlot(inv, actions, 2,
-                item(Material.SPECTRAL_ARROW, "§e↻ Поворот вправо", "Повернуть судно по часовой стрелке"),
+                item(Material.SPECTRAL_ARROW, "§e↻ Поворот вправо", "Повернуть по часовой стрелке"),
                 p -> rotateCraft(p, craft, MovecraftRotation.CLOCKWISE));
 
         Block releaseSign = findSign(craft, "Release");
@@ -122,31 +126,31 @@ public class ShipMenuListener implements Listener {
                 item(Material.RED_BED, "§4Покинуть судно", "Остановить крейсер и покинуть транспорт"),
                 p -> doRelease(p, craft, releaseSign));
 
-        // Row 1
-        setSlot(inv, actions, 9,  cruiseItem(craft, CruiseDirection.WEST, curDir),
-                p -> setCruise(p, craft, CruiseDirection.WEST));
+        // Row 1: Left / Stop / Right
+        setSlot(inv, actions, 9,  relCruiseItem(craft, lft, curDir, "Влево"),
+                p -> setCruise(p, craft, lft));
 
         setSlot(inv, actions, 10,
                 item(Material.BARRIER, "§cОстановить крейсер", "Отключить крейсерский режим"),
                 p -> stopCruise(craft));
 
-        setSlot(inv, actions, 11, cruiseItem(craft, CruiseDirection.EAST, curDir),
-                p -> setCruise(p, craft, CruiseDirection.EAST));
+        setSlot(inv, actions, 11, relCruiseItem(craft, rgt, curDir, "Вправо"),
+                p -> setCruise(p, craft, rgt));
 
-        // Row 2
+        // Row 2: Up / Backward / Down
         boolean canVertical = allowsVertical(craft);
         if (canVertical) {
-            setSlot(inv, actions, 18, cruiseItem(craft, CruiseDirection.UP, curDir),
+            setSlot(inv, actions, 18, relCruiseItem(craft, CruiseDirection.UP,   curDir, "Вверх"),
                     p -> setCruise(p, craft, CruiseDirection.UP));
-            setSlot(inv, actions, 20, cruiseItem(craft, CruiseDirection.DOWN, curDir),
+            setSlot(inv, actions, 20, relCruiseItem(craft, CruiseDirection.DOWN, curDir, "Вниз"),
                     p -> setCruise(p, craft, CruiseDirection.DOWN));
         } else {
             setSlot(inv, actions, 18, disabledItem("Вверх недоступно"), null);
             setSlot(inv, actions, 20, disabledItem("Вниз недоступно"),  null);
         }
 
-        setSlot(inv, actions, 19, cruiseItem(craft, CruiseDirection.SOUTH, curDir),
-                p -> setCruise(p, craft, CruiseDirection.SOUTH));
+        setSlot(inv, actions, 19, relCruiseItem(craft, bwd, curDir, "Назад"),
+                p -> setCruise(p, craft, bwd));
 
         menuActions.put(player.getUniqueId(), actions);
         player.openInventory(inv);
@@ -249,22 +253,29 @@ public class ShipMenuListener implements Listener {
         return is;
     }
 
-    private ItemStack cruiseItem(PlayerCraft craft, CruiseDirection dir, CruiseDirection active) {
+    /** Returns [fwd, bwd, lft, rgt] CruiseDirections relative to player yaw. */
+    private CruiseDirection[] relDirs(float rawYaw) {
+        double y = ((rawYaw % 360) + 360) % 360;
+        int snapped = ((int) Math.round(y / 90.0) * 90) % 360;
+        // yaw 0→S, 90→W, 180→N, 270→E
+        return switch (snapped) {
+            case 90  -> new CruiseDirection[]{ CruiseDirection.WEST,  CruiseDirection.EAST,  CruiseDirection.SOUTH, CruiseDirection.NORTH };
+            case 180 -> new CruiseDirection[]{ CruiseDirection.NORTH, CruiseDirection.SOUTH, CruiseDirection.WEST,  CruiseDirection.EAST  };
+            case 270 -> new CruiseDirection[]{ CruiseDirection.EAST,  CruiseDirection.WEST,  CruiseDirection.NORTH, CruiseDirection.SOUTH };
+            default  -> new CruiseDirection[]{ CruiseDirection.SOUTH, CruiseDirection.NORTH, CruiseDirection.EAST,  CruiseDirection.WEST  };
+        };
+    }
+
+    private ItemStack relCruiseItem(PlayerCraft craft, CruiseDirection dir, CruiseDirection active, String relLabel) {
         boolean on = craft.getCruising() && active == dir;
-        String label;
-        Material mat;
-        switch (dir) {
-            case NORTH -> { label = "Север";   mat = Material.ARROW; }
-            case SOUTH -> { label = "Юг";      mat = Material.ARROW; }
-            case EAST  -> { label = "Восток";  mat = Material.ARROW; }
-            case WEST  -> { label = "Запад";   mat = Material.ARROW; }
-            case UP    -> { label = "Вверх";   mat = Material.FEATHER; }
-            case DOWN  -> { label = "Вниз";    mat = Material.POINTED_DRIPSTONE; }
-            default    -> { label = dir.name(); mat = Material.ARROW; }
-        }
+        Material mat = switch (dir) {
+            case UP   -> Material.FEATHER;
+            case DOWN -> Material.POINTED_DRIPSTONE;
+            default   -> Material.ARROW;
+        };
         String prefix = on ? "§a▶ " : "§7";
         String lore   = on ? "§aКрейсер АКТИВЕН" : "§7Нажмите для крейсера";
-        return item(mat, prefix + "Крейсер: " + label, lore);
+        return item(mat, prefix + relLabel, lore);
     }
 
     private ItemStack item(Material mat, String name, String... lorelines) {
