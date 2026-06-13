@@ -3,6 +3,7 @@ package me.missaria.movecraftcannons;
 import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.craft.type.CraftType;
 import net.countercraft.movecraft.craft.type.RequiredBlockEntry;
+import net.countercraft.movecraft.craft.type.property.RequiredBlockProperty;
 import net.countercraft.movecraft.events.CraftCollisionExplosionEvent;
 import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
@@ -43,6 +44,8 @@ public class HealthBarListener implements Listener {
     private final Map<UUID, Integer>                  origBlockCount = new ConcurrentHashMap<>();
     private final Map<UUID, List<RequiredBlockEntry>> moveEntries    = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    origEntryCount = new ConcurrentHashMap<>();
+    private final Map<UUID, List<RequiredBlockEntry>> flyEntries     = new ConcurrentHashMap<>();
+    private final Map<UUID, int[]>                    origFlyCount   = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -63,20 +66,28 @@ public class HealthBarListener implements Listener {
         Craft craft = event.getCraft();
         UUID  uid   = craft.getUUID();
 
-        List<RequiredBlockEntry> entries = loadMoveEntries(craft);
+        List<RequiredBlockEntry> entries = loadEntries(craft, CraftType.MOVE_BLOCKS, "moveblocks");
+        List<RequiredBlockEntry> fEntries = loadEntries(craft, CraftType.FLY_BLOCKS, "flyblocks");
         moveEntries.put(uid, entries);
+        flyEntries.put(uid, fEntries);
 
-        int[] sc = scan(craft, entries);
+        int[] sc = scan(craft, entries, fEntries);
         origBlockCount.put(uid, sc[0]);
-        if (entries.size() > 0) {
+        if (!entries.isEmpty()) {
             int[] orig = new int[entries.size()];
             System.arraycopy(sc, 2, orig, 0, entries.size());
             origEntryCount.put(uid, orig);
         }
+        if (!fEntries.isEmpty()) {
+            int[] orig = new int[fEntries.size()];
+            System.arraycopy(sc, 2 + entries.size(), orig, 0, fEntries.size());
+            origFlyCount.put(uid, orig);
+        }
 
-        Location pos  = above(craft.getHitBox(), craft.getWorld());
+        Location pos   = above(craft.getHitBox(), craft.getWorld());
         int      origB = sc[0];
         int[]    origE = origEntryCount.getOrDefault(uid, new int[0]);
+        int[]    origF = origFlyCount.getOrDefault(uid, new int[0]);
 
         TextDisplay disp = pos.getWorld().spawn(pos, TextDisplay.class, e -> {
             e.setBillboard(Display.Billboard.CENTER);
@@ -85,14 +96,14 @@ public class HealthBarListener implements Listener {
             e.setPersistent(false);
             e.setViewRange(1.5f);
             e.setTransformation(SCALE);
-            e.text(buildText(craft, sc, origB, entries, origE));
+            e.text(buildText(craft, sc, origB, entries, origE, fEntries, origF));
         });
 
         displays.put(uid, disp);
         activeCrafts.put(uid, craft);
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onRelease(CraftReleaseEvent event) {
         remove(event.getCraft().getUUID());
     }
@@ -148,11 +159,13 @@ public class HealthBarListener implements Listener {
         TextDisplay disp = displays.get(uid);
         if (craft == null || disp == null || !disp.isValid()) return;
 
-        List<RequiredBlockEntry> entries = moveEntries.getOrDefault(uid, List.of());
-        int[] sc   = scan(craft, entries);
-        int   orig = origBlockCount.getOrDefault(uid, sc[0]);
+        List<RequiredBlockEntry> entries  = moveEntries.getOrDefault(uid, List.of());
+        List<RequiredBlockEntry> fEntries = flyEntries.getOrDefault(uid, List.of());
+        int[] sc    = scan(craft, entries, fEntries);
+        int   orig  = origBlockCount.getOrDefault(uid, sc[0]);
         int[] origE = origEntryCount.getOrDefault(uid, new int[0]);
-        disp.text(buildText(craft, sc, orig, entries, origE));
+        int[] origF = origFlyCount.getOrDefault(uid, new int[0]);
+        disp.text(buildText(craft, sc, orig, entries, origE, fEntries, origF));
     }
 
     private void remove(UUID uid) {
@@ -160,6 +173,8 @@ public class HealthBarListener implements Listener {
         origBlockCount.remove(uid);
         moveEntries.remove(uid);
         origEntryCount.remove(uid);
+        flyEntries.remove(uid);
+        origFlyCount.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
@@ -168,12 +183,13 @@ public class HealthBarListener implements Listener {
 
     /**
      * Single-pass scan. Returns int[] where:
-     *   [0]     = total craft block count (allowed, non-fluid, non-fire)
-     *   [1]     = 1 if fire detected near craft, 0 otherwise
-     *   [2 + i] = block count matching entries.get(i)
+     *   [0]                       = total craft block count (allowed, non-fluid, non-fire)
+     *   [1]                       = 1 if fire detected near craft, 0 otherwise
+     *   [2 .. 2+move-1]           = block count matching moveEntries.get(i)
+     *   [2+move .. 2+move+fly-1]  = block count matching flyEntries.get(i)
      */
-    private int[] scan(Craft craft, List<RequiredBlockEntry> entries) {
-        int[] result = new int[2 + entries.size()];
+    private int[] scan(Craft craft, List<RequiredBlockEntry> entries, List<RequiredBlockEntry> fEntries) {
+        int[] result = new int[2 + entries.size() + fEntries.size()];
         EnumSet<Material> allowed = allowedMats(craft);
         World world = craft.getWorld();
 
@@ -189,6 +205,9 @@ public class HealthBarListener implements Listener {
                 for (int i = 0; i < entries.size(); i++) {
                     if (entries.get(i).contains(m)) result[2 + i]++;
                 }
+                for (int i = 0; i < fEntries.size(); i++) {
+                    if (fEntries.get(i).contains(m)) result[2 + entries.size() + i]++;
+                }
             }
 
             if (result[1] == 0) {
@@ -203,21 +222,21 @@ public class HealthBarListener implements Listener {
         return result;
     }
 
-    // ── Move-block entries ────────────────────────────────────────────────────
+    // ── Required block entries ────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
-    private List<RequiredBlockEntry> loadMoveEntries(Craft craft) {
+    private List<RequiredBlockEntry> loadEntries(Craft craft, RequiredBlockProperty prop, String tag) {
         try {
             Set<RequiredBlockEntry> set =
-                    (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS);
+                    (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(prop);
             if (set != null && !set.isEmpty()) {
                 if (plugin.isDebug())
-                    plugin.getLogger().info("[moveblocks] " + set.size() + " entries");
+                    plugin.getLogger().info("[" + tag + "] " + set.size() + " entries");
                 return new ArrayList<>(set);
             }
         } catch (Exception e) {
             if (plugin.isDebug())
-                plugin.getLogger().info("[moveblocks] error: " + e.getMessage());
+                plugin.getLogger().info("[" + tag + "] error: " + e.getMessage());
         }
         return List.of();
     }
@@ -242,7 +261,8 @@ public class HealthBarListener implements Listener {
     // ── Text ─────────────────────────────────────────────────────────────────
 
     private Component buildText(Craft craft, int[] sc, int orig,
-                                List<RequiredBlockEntry> entries, int[] origE) {
+                                List<RequiredBlockEntry> entries, int[] origE,
+                                List<RequiredBlockEntry> fEntries, int[] origF) {
         int curr = sc[0];
 
         double sinkLost = 0.0;
@@ -269,21 +289,37 @@ public class HealthBarListener implements Listener {
                 .append(Component.text(String.format(" %.0f%%", pct)).color(hColor))
                 .append(Component.text(" (" + curr + "/" + orig + ")").color(NamedTextColor.GRAY));
 
-        // Per-entry move-block lines
+        // Move-block lines (⚙)
         for (int i = 0; i < entries.size(); i++) {
-            RequiredBlockEntry entry  = entries.get(i);
-            int   currE = sc[2 + i];
-            int   origEntry = (origE.length > i) ? origE[i] : currE;
+            RequiredBlockEntry entry = entries.get(i);
+            int currE    = sc[2 + i];
+            int origEntry = (origE.length > i) ? origE[i] : currE;
             if (origEntry <= 0) origEntry = currE;
 
-            boolean met   = entry.check(currE, curr);
+            boolean met = entry.check(currE, curr);
             NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
-
             double ePct = origEntry > 0 ? Math.max(0.0, (double) currE / origEntry * 100.0) : 100.0;
-            String label = entryLabel(entry);
 
             text.appendNewline()
-                .append(Component.text("⚙ " + label + ": ").color(NamedTextColor.GRAY))
+                .append(Component.text("⚙ " + entryLabel(entry) + ": ").color(NamedTextColor.GRAY))
+                .append(Component.text(String.format("%.0f%%", ePct)).color(mc))
+                .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
+        }
+
+        // Fly-block lines (🪂)
+        int base = 2 + entries.size();
+        for (int i = 0; i < fEntries.size(); i++) {
+            RequiredBlockEntry entry = fEntries.get(i);
+            int currE    = sc[base + i];
+            int origEntry = (origF.length > i) ? origF[i] : currE;
+            if (origEntry <= 0) origEntry = currE;
+
+            boolean met = entry.check(currE, curr);
+            NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
+            double ePct = origEntry > 0 ? Math.max(0.0, (double) currE / origEntry * 100.0) : 100.0;
+
+            text.appendNewline()
+                .append(Component.text("🪂 " + entryLabel(entry) + ": ").color(NamedTextColor.GRAY))
                 .append(Component.text(String.format("%.0f%%", ePct)).color(mc))
                 .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
         }

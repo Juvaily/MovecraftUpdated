@@ -5,6 +5,7 @@ import net.countercraft.movecraft.MovecraftRotation;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -22,21 +23,25 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WasdListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
-    private final Map<UUID, Long> lastMove   = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> lastRotate = new ConcurrentHashMap<>();
+    // Last direction (dx, dz) and timestamp of last movement event per player
+    private final Map<UUID, int[]> latestDir  = new ConcurrentHashMap<>();
+    private final Map<UUID, Long>  latestTime = new ConcurrentHashMap<>();
+    private final Map<UUID, Long>  lastRotate = new ConcurrentHashMap<>();
 
-    private static final double MIN_DELTA       = 0.15;
     private static final long   ROTATE_DEBOUNCE = 600L;
+    private static final double MOVE_THRESHOLD  = 0.005;
 
     public WasdListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
+        long ticks = Math.max(1L, plugin.getConfig().getLong("wasd.cooldown_ms", 200L) / 50L);
+        Bukkit.getScheduler().runTaskTimer(plugin, this::tickMovement, 0L, ticks);
     }
 
-    // ── WASD (only in Direct Control — pilotLocked == true) ───────────────────
+    // ── Capture movement direction ─────────────────────────────────────────────
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
-        // Skip craft-caused pilot teleports
+        // Ignore server-side teleports (Movecraft's pilotLocked return)
         if (event instanceof PlayerTeleportEvent) return;
 
         Location from = event.getFrom();
@@ -45,31 +50,85 @@ public class WasdListener implements Listener {
 
         double dx = to.getX() - from.getX();
         double dz = to.getZ() - from.getZ();
-        if (Math.abs(dx) < MIN_DELTA && Math.abs(dz) < MIN_DELTA) return;
+        if (Math.abs(dx) < MOVE_THRESHOLD && Math.abs(dz) < MOVE_THRESHOLD) return;
 
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
-        // Only active in Movecraft's Direct Control Mode (LMB feather → pilotLocked=true)
-        if (craft == null || !craft.getPilotLocked()) return;
+        if (craft == null || !craft.getPilotLocked()) {
+            UUID uid = player.getUniqueId();
+            latestDir.remove(uid);
+            latestTime.remove(uid);
+            return;
+        }
 
-        // Don't freeze — pilotLocked mechanism already teleports pilot back to locked position.
-        // We only need to submit the craft translation.
+        int[] dir = resolveDir(player.getLocation().getYaw(), dx, dz);
+        UUID uid  = player.getUniqueId();
+        latestDir.put(uid, dir);
+        latestTime.put(uid, System.currentTimeMillis());
+    }
 
+    // ── Periodic movement tick ─────────────────────────────────────────────────
+
+    private void tickMovement() {
         long now      = System.currentTimeMillis();
-        Long last     = lastMove.get(player.getUniqueId());
         long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
-        if (last != null && now - last < cooldown) return;
-        lastMove.put(player.getUniqueId(), now);
+        // If no movement event for 3 periods, player has released keys
+        long inputTTL = cooldown * 3;
 
-        int tdx = 0, tdz = 0;
-        if (Math.abs(dx) >= Math.abs(dz)) tdx = dx > 0 ? 1 : -1;
-        else                               tdz = dz > 0 ? 1 : -1;
+        latestDir.forEach((uid, dir) -> {
+            Long t = latestTime.get(uid);
+            if (t == null || now - t > inputTTL) {
+                latestDir.remove(uid);
+                latestTime.remove(uid);
+                return;
+            }
+            if (dir[0] == 0 && dir[1] == 0) return;
 
-        craft.translate(tdx, 0, tdz);
+            Player player = Bukkit.getPlayer(uid);
+            if (player == null) { latestDir.remove(uid); latestTime.remove(uid); return; }
 
-        if (plugin.isDebug())
-            plugin.getLogger().info("[wasd] " + player.getName()
-                + " (" + tdx + ",0," + tdz + ") notProcessing=" + craft.isNotProcessing());
+            PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
+            if (craft == null || !craft.getPilotLocked()) {
+                latestDir.remove(uid);
+                latestTime.remove(uid);
+                return;
+            }
+
+            craft.translate(dir[0], 0, dir[1]);
+
+            if (plugin.isDebug())
+                plugin.getLogger().info("[wasd] " + player.getName()
+                    + " (" + dir[0] + ",0," + dir[1] + ") notProcessing=" + craft.isNotProcessing());
+        });
+    }
+
+    /**
+     * Converts a movement delta + player yaw into a world-space (dx, dz) translation vector.
+     * Yaw is snapped to the nearest 90° cardinal so the craft moves in clean block steps.
+     * The delta is projected onto the forward/right vectors to determine which keys were pressed.
+     */
+    private int[] resolveDir(float rawYaw, double dx, double dz) {
+        double yaw     = ((rawYaw % 360) + 360) % 360;
+        int    snapped = ((int) Math.round(yaw / 90.0) * 90) % 360;
+
+        // Forward unit vector in world XZ for the snapped yaw
+        int fx = -(int) Math.round(Math.sin(Math.toRadians(snapped)));
+        int fz =  (int) Math.round(Math.cos(Math.toRadians(snapped)));
+        // Right unit vector (yaw + 90°)
+        int rx = -(int) Math.round(Math.sin(Math.toRadians(snapped + 90)));
+        int rz =  (int) Math.round(Math.cos(Math.toRadians(snapped + 90)));
+
+        // Project delta onto forward/right axes
+        double fwd    = dx * fx + dz * fz;
+        double strafe = dx * rx + dz * rz;
+
+        int rdx = 0, rdz = 0;
+        if      (fwd    >  MOVE_THRESHOLD) { rdx += fx; rdz += fz; }
+        else if (fwd    < -MOVE_THRESHOLD) { rdx -= fx; rdz -= fz; }
+        if      (strafe >  MOVE_THRESHOLD) { rdx += rx; rdz += rz; }
+        else if (strafe < -MOVE_THRESHOLD) { rdx -= rx; rdz -= rz; }
+
+        return new int[]{Math.max(-1, Math.min(1, rdx)), Math.max(-1, Math.min(1, rdz))};
     }
 
     // ── Q → rotate left — only in Direct Control ──────────────────────────────
