@@ -26,7 +26,9 @@ import org.bukkit.util.Transformation;
 import org.joml.AxisAngle4f;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -36,11 +38,10 @@ public class HealthBarListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
 
-    private final Map<UUID, TextDisplay> displays       = new ConcurrentHashMap<>();
-    private final Map<UUID, Craft>       activeCrafts   = new ConcurrentHashMap<>();
-    // Stored at detection time using the same counting method as the live scan
-    private final Map<UUID, Integer>     origBlockCount = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer>     origMoveCount  = new ConcurrentHashMap<>();
+    private final Map<UUID, TextDisplay>               displays       = new ConcurrentHashMap<>();
+    private final Map<UUID, Craft>                     activeCrafts   = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer>                   origBlockCount = new ConcurrentHashMap<>();
+    private final Map<UUID, List<RequiredBlockEntry>>  moveEntries    = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -61,14 +62,14 @@ public class HealthBarListener implements Listener {
         Craft craft = event.getCraft();
         UUID  uid   = craft.getUUID();
 
-        EnumSet<Material> moveMats = moveBlockMaterials(craft);
-        int[] scan = scanCraft(craft, moveMats);
+        List<RequiredBlockEntry> entries = loadMoveEntries(craft);
+        moveEntries.put(uid, entries);
 
+        int[] scan = scan(craft, entries);
         origBlockCount.put(uid, scan[0]);
-        origMoveCount.put(uid, scan[2]);
 
         Location pos = above(craft.getHitBox(), craft.getWorld());
-        int origB = scan[0], origM = scan[2];
+        int origB = scan[0];
         TextDisplay disp = pos.getWorld().spawn(pos, TextDisplay.class, e -> {
             e.setBillboard(Display.Billboard.CENTER);
             e.setDefaultBackground(false);
@@ -76,7 +77,7 @@ public class HealthBarListener implements Listener {
             e.setPersistent(false);
             e.setViewRange(1.5f);
             e.setTransformation(SCALE);
-            e.text(buildText(craft, scan[0], origB, scan[1] == 1, scan[2], origM));
+            e.text(buildText(craft, scan, origB, entries));
         });
 
         displays.put(uid, disp);
@@ -139,57 +140,62 @@ public class HealthBarListener implements Listener {
         TextDisplay disp = displays.get(uid);
         if (craft == null || disp == null || !disp.isValid()) return;
 
-        EnumSet<Material> moveMats = moveBlockMaterials(craft);
-        int[] scan  = scanCraft(craft, moveMats);
-        int origB   = origBlockCount.getOrDefault(uid, scan[0]);
-        int origM   = origMoveCount.getOrDefault(uid, scan[2]);
-
-        disp.text(buildText(craft, scan[0], origB, scan[1] == 1, scan[2], origM));
+        List<RequiredBlockEntry> entries = moveEntries.getOrDefault(uid, List.of());
+        int[] sc   = scan(craft, entries);
+        int   orig = origBlockCount.getOrDefault(uid, sc[0]);
+        disp.text(buildText(craft, sc, orig, entries));
     }
 
     private void remove(UUID uid) {
         activeCrafts.remove(uid);
         origBlockCount.remove(uid);
-        origMoveCount.remove(uid);
+        moveEntries.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
 
-    // ── Scan (single pass) ────────────────────────────────────────────────────
+    // ── Scan ─────────────────────────────────────────────────────────────────
 
     /**
-     * Returns [blockCount, onFire (0/1), moveBlockCount].
-     * Only counts blocks whose material is in the craft's ALLOWED_BLOCKS set,
-     * so water/fire filling destroyed positions is excluded.
+     * Single-pass scan. Returns int[] where:
+     *   [0] = block count (allowed, non-fluid)
+     *   [1] = 1 if fire detected, 0 otherwise
+     *   [2 + i] = count of blocks matching entries.get(i)
      */
-    private int[] scanCraft(Craft craft, EnumSet<Material> moveMats) {
-        EnumSet<Material> allowed = allowedMaterials(craft);
+    private int[] scan(Craft craft, List<RequiredBlockEntry> entries) {
+        int[] result = new int[2 + entries.size()];
+        EnumSet<Material> allowed = allowedMats(craft);
         World world = craft.getWorld();
-        int blocks = 0, fire = 0, move = 0;
+
         for (var loc : craft.getHitBox()) {
             Material m = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ()).getType();
-            // Always exclude fluids and fire — they fill in after block loss and aren't craft blocks
-            boolean isFluidOrFire = m == Material.WATER || m == Material.LAVA
-                    || m == Material.FIRE || m == Material.SOUL_FIRE
+
+            boolean isFluid = m == Material.WATER || m == Material.LAVA
                     || m == Material.CAVE_AIR || m == Material.VOID_AIR;
-            if (!isFluidOrFire) {
-                if (allowed != null ? allowed.contains(m) : !m.isAir()) blocks++;
-                if (moveMats != null && moveMats.contains(m)) move++;
+            boolean isFire  = m == Material.FIRE || m == Material.SOUL_FIRE;
+
+            if (!isFluid && !isFire) {
+                if (allowed != null ? allowed.contains(m) : !m.isAir()) result[0]++;
+                for (int i = 0; i < entries.size(); i++) {
+                    if (entries.get(i).contains(m)) result[2 + i]++;
+                }
             }
-            if (fire == 0) {
-                // Check position itself and the block above for fire
-                if (m == Material.FIRE || m == Material.SOUL_FIRE) {
-                    fire = 1;
+
+            if (result[1] == 0) {
+                if (isFire) {
+                    result[1] = 1;
                 } else {
                     Material above = world.getBlockAt(loc.getX(), loc.getY() + 1, loc.getZ()).getType();
-                    if (above == Material.FIRE || above == Material.SOUL_FIRE) fire = 1;
+                    if (above == Material.FIRE || above == Material.SOUL_FIRE) result[1] = 1;
                 }
             }
         }
-        return new int[]{blocks, fire, move};
+        return result;
     }
 
-    private EnumSet<Material> allowedMaterials(Craft craft) {
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private EnumSet<Material> allowedMats(Craft craft) {
         try {
             EnumSet<Material> s = craft.getType().getMaterialSetProperty(CraftType.ALLOWED_BLOCKS);
             if (s != null && !s.isEmpty()) return s;
@@ -197,60 +203,37 @@ public class HealthBarListener implements Listener {
         return null;
     }
 
-    /** Collects all materials from the craft type's moveBlocks required-block entries. */
     @SuppressWarnings("unchecked")
-    private EnumSet<Material> moveBlockMaterials(Craft craft) {
-        // Try required-block entries (percentage format: ">0:WOOL")
+    private List<RequiredBlockEntry> loadMoveEntries(Craft craft) {
         try {
-            Set<RequiredBlockEntry> entries =
+            Set<RequiredBlockEntry> set =
                     (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS);
-            if (entries != null && !entries.isEmpty()) {
-                EnumSet<Material> result = EnumSet.noneOf(Material.class);
-                for (RequiredBlockEntry entry : entries) {
-                    for (Object o : entry.getMaterials()) {
-                        if (o instanceof Material mat) result.add(mat);
-                    }
-                }
-                if (!result.isEmpty()) {
-                    if (plugin.isDebug())
-                        plugin.getLogger().info("[moveblocks] required-block entries: " + result);
-                    return result;
-                }
-            }
-        } catch (Exception e) {
-            if (plugin.isDebug())
-                plugin.getLogger().info("[moveblocks] getRequiredBlockProperty failed: " + e.getMessage());
-        }
-        // Try simple material set (plain list format)
-        try {
-            EnumSet<Material> s = craft.getType().getMaterialSetProperty(CraftType.MOVE_BLOCKS);
-            if (s != null && !s.isEmpty()) {
+            if (set != null && !set.isEmpty()) {
                 if (plugin.isDebug())
-                    plugin.getLogger().info("[moveblocks] material-set: " + s);
-                return s;
+                    plugin.getLogger().info("[moveblocks] loaded " + set.size() + " entries for " + typeName(craft));
+                return new ArrayList<>(set);
             }
         } catch (Exception e) {
             if (plugin.isDebug())
-                plugin.getLogger().info("[moveblocks] getMaterialSetProperty failed: " + e.getMessage());
+                plugin.getLogger().info("[moveblocks] failed: " + e.getMessage());
         }
-        if (plugin.isDebug())
-            plugin.getLogger().info("[moveblocks] no move blocks found for craft type");
-        return null;
+        return List.of();
     }
 
-    // ── Layout ────────────────────────────────────────────────────────────────
-
     private Location above(HitBox box, World world) {
-        double x = (box.getMinX() + box.getMaxX()) / 2.0;
-        double y = box.getMaxY() + 4.0;
-        double z = (box.getMinZ() + box.getMaxZ()) / 2.0;
-        return new Location(world, x, y, z);
+        return new Location(world,
+                (box.getMinX() + box.getMaxX()) / 2.0,
+                box.getMaxY() + 4.0,
+                (box.getMinZ() + box.getMaxZ()) / 2.0);
     }
 
     // ── Text ─────────────────────────────────────────────────────────────────
 
-    private Component buildText(Craft craft, int curr, int orig,
-                                boolean onFire, int moveCurr, int moveOrig) {
+    private Component buildText(Craft craft, int[] sc, int orig,
+                                List<RequiredBlockEntry> entries) {
+        int curr = sc[0];
+
+        // Effective health relative to sink threshold
         double sinkLost = 0.0;
         try { sinkLost = craft.getType().getDoubleProperty(CraftType.OVERALL_SINK_PERCENT) / 100.0; }
         catch (Exception ignored) {}
@@ -275,18 +258,25 @@ public class HealthBarListener implements Listener {
                 .append(Component.text(String.format(" %.0f%%", pct)).color(hColor))
                 .append(Component.text(" (" + curr + "/" + orig + ")").color(NamedTextColor.GRAY));
 
-        // Move blocks line
-        if (moveOrig > 0) {
-            NamedTextColor mColor = moveCurr >= moveOrig * 0.6 ? NamedTextColor.GREEN
-                                  : moveCurr >= moveOrig * 0.3 ? NamedTextColor.YELLOW
-                                  : NamedTextColor.RED;
+        // Per-entry move blocks lines
+        for (int i = 0; i < entries.size(); i++) {
+            RequiredBlockEntry entry = entries.get(i);
+            int entryCurr = sc[2 + i];
+            boolean met   = entry.check(entryCurr, curr);
+
+            NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
+            String label  = entryLabel(entry);
+            String req    = entryReq(entry, curr);
+
             text.appendNewline()
-                .append(Component.text("⚙ Мувблоки: ").color(NamedTextColor.GRAY))
-                .append(Component.text(moveCurr + "/" + moveOrig).color(mColor));
+                .append(Component.text("⚙ " + label + ": ")
+                        .color(NamedTextColor.GRAY))
+                .append(Component.text(entryCurr + " " + req)
+                        .color(mc));
         }
 
-        // Fire line
-        if (onFire) {
+        // Fire indicator
+        if (sc[1] == 1) {
             text.appendNewline()
                 .append(Component.text("🔥 Горит!")
                         .color(NamedTextColor.RED)
@@ -294,6 +284,38 @@ public class HealthBarListener implements Listener {
         }
 
         return text.build();
+    }
+
+    /** Human-readable label for a RequiredBlockEntry. */
+    private String entryLabel(RequiredBlockEntry entry) {
+        String n = entry.getName();
+        if (n != null && !n.isBlank()) return n;
+        // Fall back to comma-separated material names (first 2)
+        var mats = new ArrayList<>(entry.getMaterials());
+        if (mats.isEmpty()) return "?";
+        String first = mats.get(0).toString().replace("_", " ").toLowerCase();
+        if (mats.size() > 1) first += " +" + (mats.size() - 1);
+        return first;
+    }
+
+    /** Threshold string: "≥N" (count) or "≥N% (of total)" (ratio). */
+    private String entryReq(RequiredBlockEntry entry, int total) {
+        double min = entry.getMin();
+        double max = entry.getMax();
+        boolean numMin = entry.isNumericMin();
+        boolean numMax = entry.isNumericMax();
+
+        String minStr = numMin
+                ? "≥" + (int) min
+                : "≥" + String.format("%.0f%%", min * 100) + " (" + (int)(min * total) + ")";
+
+        if (max > 0 && max < Double.MAX_VALUE / 2) {
+            String maxStr = numMax
+                    ? "≤" + (int) max
+                    : "≤" + String.format("%.0f%%", max * 100) + " (" + (int)(max * total) + ")";
+            return "[" + minStr + " " + maxStr + "]";
+        }
+        return "[" + minStr + "]";
     }
 
     private String typeName(Craft craft) {
