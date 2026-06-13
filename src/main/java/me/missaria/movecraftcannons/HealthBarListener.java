@@ -369,32 +369,28 @@ public class HealthBarListener implements Listener {
         ENTRY_NAMES.put("propellers",   "Пропеллеры");
     }
 
-    /** Label for a moveblock/flyblock entry: RU_NAMES (materials) → translated custom name → fallback. */
+    /** Label for a moveblock/flyblock entry: custom name → RU_NAMES (single material) → fallback. */
     private String entryLabel(RequiredBlockEntry entry) {
-        // Try material lookup first
-        try {
-            var mats = new ArrayList<>(entry.getMaterials());
-            if (!mats.isEmpty()) {
-                Material first = (Material) mats.get(0);
-                String ru = RU_NAMES.get(first);
-                if (ru != null) return ru;
-            }
-        } catch (Exception ignored) {}
-
-        // Try custom name from craft YAML (possibly English — translate if known)
+        // 1. Custom name from craft YAML takes priority
         String n = entry.getName();
         if (n != null && !n.isBlank()) {
             String ru = ENTRY_NAMES.get(n.trim().toLowerCase());
-            if (ru != null) return ru;
-            return n; // Unknown custom name — return as-is
+            return ru != null ? ru : n;
         }
 
-        // Fallback: raw material name
+        // 2. Single-material entries: use RU_NAMES for a precise Russian name
         try {
             var mats = new ArrayList<>(entry.getMaterials());
+            if (mats.size() == 1) {
+                Material m = (Material) mats.get(0);
+                String ru = RU_NAMES.get(m);
+                if (ru != null) return ru;
+                return m.name().replace('_', ' ').toLowerCase();
+            }
+            // 3. Multi-material entries without custom name: use raw first material name
             if (!mats.isEmpty()) {
-                Material first = (Material) mats.get(0);
-                return first.name().replace('_', ' ').toLowerCase();
+                Material m = (Material) mats.get(0);
+                return m.name().replace('_', ' ').toLowerCase();
             }
         } catch (Exception ignored) {}
 
