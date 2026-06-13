@@ -2,6 +2,7 @@ package me.missaria.movecraftcannons;
 
 import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.events.CraftCollisionExplosionEvent;
+import org.bukkit.NamespacedKey;
 import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.events.CraftRotateEvent;
@@ -162,9 +163,24 @@ public class HealthBarListener implements Listener {
         return new Location(world, x, y, z);
     }
 
+    private static final NamespacedKey KEY_SINK_PCT =
+            new NamespacedKey("movecraft", "overall_sink_percent");
+
     private Component buildText(Craft craft, int curr, int orig) {
-        double pct    = frac(curr, orig) * 100;
-        int    filled = (int) Math.round(frac(curr, orig) * 10);
+        // Read the sink threshold so 0% = craft is about to sink, not physically empty
+        double sinkLost = 0.0;
+        try { sinkLost = craft.getType().getDoubleProperty(KEY_SINK_PCT) / 100.0; }
+        catch (Exception ignored) {}
+        double sinkRatio = 1.0 - sinkLost; // fraction of blocks at which craft sinks
+
+        double ratio = frac(curr, orig);
+        double pct;
+        if (sinkLost <= 0.0) {
+            pct = ratio * 100.0;
+        } else {
+            pct = Math.max(0.0, (ratio - sinkRatio) / (1.0 - sinkRatio)) * 100.0;
+        }
+        int    filled = (int) Math.round(pct / 10.0);
 
         NamedTextColor hColor = pct > 60 ? NamedTextColor.GREEN
                               : pct > 30 ? NamedTextColor.YELLOW
