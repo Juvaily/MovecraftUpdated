@@ -187,7 +187,7 @@ public class HealthBarListener implements Listener {
 
     private String typeName(Craft craft) {
         try {
-            String n = craft.getType().getName();
+            String n = craft.getType().getNamespacedKey().getKey();
             if (n != null && !n.isBlank()) {
                 return n.substring(0, 1).toUpperCase() + n.substring(1);
             }
