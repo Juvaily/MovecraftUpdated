@@ -66,7 +66,7 @@ public class HealthBarListener implements Listener {
         TextDisplay disp = pos.getWorld().spawn(pos, TextDisplay.class, e -> {
             e.setBillboard(Display.Billboard.CENTER); // always faces the viewer
             e.setDefaultBackground(false);
-            e.setShadow(true);
+            e.setShadowed(true);
             e.setPersistent(false);  // not saved to disk
             e.setViewRange(1.5f);   // ~96 blocks visibility
             e.setTransformation(SCALE);
