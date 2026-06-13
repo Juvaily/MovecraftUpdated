@@ -2,6 +2,7 @@ package me.missaria.movecraftcannons;
 
 import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.craft.type.CraftType;
+import net.countercraft.movecraft.craft.type.RequiredBlockEntry;
 import net.countercraft.movecraft.events.CraftCollisionExplosionEvent;
 import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
@@ -27,6 +28,7 @@ import org.joml.Vector3f;
 
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -36,7 +38,9 @@ public class HealthBarListener implements Listener {
 
     private final Map<UUID, TextDisplay> displays       = new ConcurrentHashMap<>();
     private final Map<UUID, Craft>       activeCrafts   = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer>     origMoveCounts = new ConcurrentHashMap<>();
+    // Stored at detection time using the same counting method as the live scan
+    private final Map<UUID, Integer>     origBlockCount = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer>     origMoveCount  = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -57,14 +61,14 @@ public class HealthBarListener implements Listener {
         Craft craft = event.getCraft();
         UUID  uid   = craft.getUUID();
 
-        int[] scan = scanCraft(craft);
-        int   curr = scan[0];
-        int   orig = craft.getOrigBlockCount();
-        if (orig <= 0) orig = curr;
-        origMoveCounts.put(uid, scan[2]);
+        EnumSet<Material> moveMats = moveBlockMaterials(craft);
+        int[] scan = scanCraft(craft, moveMats);
+
+        origBlockCount.put(uid, scan[0]);
+        origMoveCount.put(uid, scan[2]);
 
         Location pos = above(craft.getHitBox(), craft.getWorld());
-        int finalOrig = orig;
+        int origB = scan[0], origM = scan[2];
         TextDisplay disp = pos.getWorld().spawn(pos, TextDisplay.class, e -> {
             e.setBillboard(Display.Billboard.CENTER);
             e.setDefaultBackground(false);
@@ -72,7 +76,7 @@ public class HealthBarListener implements Listener {
             e.setPersistent(false);
             e.setViewRange(1.5f);
             e.setTransformation(SCALE);
-            e.text(buildText(craft, curr, finalOrig, scan[1] == 1, scan[2], scan[2]));
+            e.text(buildText(craft, scan[0], origB, scan[1] == 1, scan[2], origM));
         });
 
         displays.put(uid, disp);
@@ -135,30 +139,28 @@ public class HealthBarListener implements Listener {
         TextDisplay disp = displays.get(uid);
         if (craft == null || disp == null || !disp.isValid()) return;
 
-        int[] scan = scanCraft(craft);
-        int curr = scan[0];
-        int orig = craft.getOrigBlockCount();
-        if (orig <= 0) orig = curr;
-        int origMove = origMoveCounts.getOrDefault(uid, scan[2]);
+        EnumSet<Material> moveMats = moveBlockMaterials(craft);
+        int[] scan  = scanCraft(craft, moveMats);
+        int origB   = origBlockCount.getOrDefault(uid, scan[0]);
+        int origM   = origMoveCount.getOrDefault(uid, scan[2]);
 
-        disp.text(buildText(craft, curr, orig, scan[1] == 1, scan[2], origMove));
+        disp.text(buildText(craft, scan[0], origB, scan[1] == 1, scan[2], origM));
     }
 
     private void remove(UUID uid) {
         activeCrafts.remove(uid);
-        origMoveCounts.remove(uid);
+        origBlockCount.remove(uid);
+        origMoveCount.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
 
-    // ── Craft scan (one pass) ─────────────────────────────────────────────────
+    // ── Scan (single pass) ────────────────────────────────────────────────────
 
     /** Returns [blockCount, onFire (0/1), moveBlockCount]. */
-    private int[] scanCraft(Craft craft) {
-        EnumSet<Material> moveMats = moveBlockMaterials(craft);
+    private int[] scanCraft(Craft craft, EnumSet<Material> moveMats) {
         World world = craft.getWorld();
         int blocks = 0, fire = 0, move = 0;
-
         for (var loc : craft.getHitBox()) {
             Material m = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ()).getType();
             if (!m.isAir()) blocks++;
@@ -172,15 +174,27 @@ public class HealthBarListener implements Listener {
         return new int[]{blocks, fire, move};
     }
 
+    /** Collects all materials from the craft type's moveBlocks required-block entries. */
+    @SuppressWarnings("unchecked")
     private EnumSet<Material> moveBlockMaterials(Craft craft) {
         try {
-            EnumSet<Material> s = craft.getType().getMaterialSetProperty(CraftType.MOVE_BLOCKS);
-            if (s != null && !s.isEmpty()) return s;
-        } catch (Exception ignored) {}
-        return null;
+            Set<RequiredBlockEntry> entries =
+                    (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS);
+            if (entries == null || entries.isEmpty()) return null;
+            EnumSet<Material> result = EnumSet.noneOf(Material.class);
+            for (RequiredBlockEntry entry : entries) {
+                Set<?> mats = entry.getMaterials();
+                for (Object o : mats) {
+                    if (o instanceof Material mat) result.add(mat);
+                }
+            }
+            return result.isEmpty() ? null : result;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Layout ────────────────────────────────────────────────────────────────
 
     private Location above(HitBox box, World world) {
         double x = (box.getMinX() + box.getMaxX()) / 2.0;
@@ -192,8 +206,7 @@ public class HealthBarListener implements Listener {
     // ── Text ─────────────────────────────────────────────────────────────────
 
     private Component buildText(Craft craft, int curr, int orig,
-                                boolean onFire, int moveBlocks, int origMove) {
-        // Effective health: 100% at full, 0% at sink threshold
+                                boolean onFire, int moveCurr, int moveOrig) {
         double sinkLost = 0.0;
         try { sinkLost = craft.getType().getDoubleProperty(CraftType.OVERALL_SINK_PERCENT) / 100.0; }
         catch (Exception ignored) {}
@@ -207,30 +220,25 @@ public class HealthBarListener implements Listener {
         NamedTextColor hColor = pct > 60 ? NamedTextColor.GREEN
                               : pct > 30 ? NamedTextColor.YELLOW
                               : NamedTextColor.RED;
-        String filledBar = "█".repeat(filled);
-        String emptyBar  = "░".repeat(10 - filled);
 
         var text = Component.text()
                 .append(Component.text("⚓ " + typeName(craft))
                         .color(NamedTextColor.GOLD)
                         .decoration(TextDecoration.BOLD, true))
                 .appendNewline()
-                .append(Component.text(filledBar).color(hColor))
-                .append(Component.text(emptyBar).color(NamedTextColor.DARK_GRAY))
+                .append(Component.text("█".repeat(filled)).color(hColor))
+                .append(Component.text("░".repeat(10 - filled)).color(NamedTextColor.DARK_GRAY))
                 .append(Component.text(String.format(" %.0f%%", pct)).color(hColor))
                 .append(Component.text(" (" + curr + "/" + orig + ")").color(NamedTextColor.GRAY));
 
         // Move blocks line
-        if (origMove > 0) {
-            double movePct = origMove > 0 ? (double) moveBlocks / origMove : 1.0;
-            NamedTextColor mColor = movePct > 0.6 ? NamedTextColor.GREEN
-                                  : movePct > 0.3 ? NamedTextColor.YELLOW
+        if (moveOrig > 0) {
+            NamedTextColor mColor = moveCurr >= moveOrig * 0.6 ? NamedTextColor.GREEN
+                                  : moveCurr >= moveOrig * 0.3 ? NamedTextColor.YELLOW
                                   : NamedTextColor.RED;
             text.appendNewline()
-                .append(Component.text("⚙ Мувблоки: ")
-                        .color(NamedTextColor.GRAY))
-                .append(Component.text(moveBlocks + "/" + origMove)
-                        .color(mColor));
+                .append(Component.text("⚙ Мувблоки: ").color(NamedTextColor.GRAY))
+                .append(Component.text(moveCurr + "/" + moveOrig).color(mColor));
         }
 
         // Fire line

@@ -13,6 +13,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 
 import java.util.Map;
 import java.util.UUID;
@@ -24,8 +25,8 @@ public class WasdListener implements Listener {
     private final Map<UUID, Long> lastMove   = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastRotate = new ConcurrentHashMap<>();
 
-    private static final double MIN_DELTA         = 0.15;
-    private static final long   ROTATE_DEBOUNCE   = 600L;
+    private static final double MIN_DELTA       = 0.15;
+    private static final long   ROTATE_DEBOUNCE = 600L;
 
     public WasdListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
@@ -35,6 +36,10 @@ public class WasdListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
+        // Skip teleports — the craft itself teleports the pilot after translating;
+        // intercepting that would cancel the craft's own pilot relocation.
+        if (event instanceof PlayerTeleportEvent) return;
+
         Location from = event.getFrom();
         Location to   = event.getTo();
         if (to == null) return;
@@ -44,19 +49,14 @@ public class WasdListener implements Listener {
         if (craft == null || !craft.getPilotLocked()) return;
 
         double dx = to.getX() - from.getX();
-        double dy = to.getY() - from.getY();
         double dz = to.getZ() - from.getZ();
 
-        // Freeze ALL position changes — allow only head rotation
-        boolean posChanged = Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001 || Math.abs(dz) > 0.001;
-        if (posChanged) {
-            Location cancelTo = from.clone();
-            cancelTo.setYaw(to.getYaw());
-            cancelTo.setPitch(to.getPitch());
-            event.setTo(cancelTo);
-        }
+        // Always freeze position while in direct control (Y handled by Movecraft's pilotLocked)
+        Location cancelTo = from.clone();
+        cancelTo.setYaw(to.getYaw());
+        cancelTo.setPitch(to.getPitch());
+        event.setTo(cancelTo);
 
-        // Only translate on significant horizontal input
         if (Math.abs(dx) < MIN_DELTA && Math.abs(dz) < MIN_DELTA) return;
 
         long now      = System.currentTimeMillis();
@@ -89,9 +89,6 @@ public class WasdListener implements Listener {
         event.setCancelled(true);
         if (!rotateDebounce(player.getUniqueId())) return;
         rotateCraft(craft, MovecraftRotation.ANTICLOCKWISE);
-
-        if (plugin.isDebug())
-            plugin.getLogger().info("[wasd] " + player.getName() + " rotate LEFT");
     }
 
     // ── F → rotate right (clockwise) ──────────────────────────────────────────
@@ -105,9 +102,6 @@ public class WasdListener implements Listener {
         event.setCancelled(true);
         if (!rotateDebounce(player.getUniqueId())) return;
         rotateCraft(craft, MovecraftRotation.CLOCKWISE);
-
-        if (plugin.isDebug())
-            plugin.getLogger().info("[wasd] " + player.getName() + " rotate RIGHT");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -121,12 +115,11 @@ public class WasdListener implements Listener {
     }
 
     private void rotateCraft(PlayerCraft craft, MovecraftRotation rotation) {
-        HitBox hb  = craft.getHitBox();
-        MovecraftLocation mid = new MovecraftLocation(
+        HitBox hb = craft.getHitBox();
+        craft.rotate(rotation, new MovecraftLocation(
                 (hb.getMinX() + hb.getMaxX()) / 2,
                 (hb.getMinY() + hb.getMaxY()) / 2,
                 (hb.getMinZ() + hb.getMaxZ()) / 2
-        );
-        craft.rotate(rotation, mid);
+        ));
     }
 }
