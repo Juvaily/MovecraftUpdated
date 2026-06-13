@@ -134,14 +134,19 @@ public class ShipMenuListener implements Listener {
                 p -> setCruise(p, craft, CruiseDirection.EAST));
 
         // Row 2
-        setSlot(inv, actions, 18, cruiseItem(craft, CruiseDirection.UP, curDir),
-                p -> setCruise(p, craft, CruiseDirection.UP));
+        boolean canVertical = allowsVertical(craft);
+        if (canVertical) {
+            setSlot(inv, actions, 18, cruiseItem(craft, CruiseDirection.UP, curDir),
+                    p -> setCruise(p, craft, CruiseDirection.UP));
+            setSlot(inv, actions, 20, cruiseItem(craft, CruiseDirection.DOWN, curDir),
+                    p -> setCruise(p, craft, CruiseDirection.DOWN));
+        } else {
+            setSlot(inv, actions, 18, disabledItem("Вверх недоступно"), null);
+            setSlot(inv, actions, 20, disabledItem("Вниз недоступно"),  null);
+        }
 
         setSlot(inv, actions, 19, cruiseItem(craft, CruiseDirection.SOUTH, curDir),
                 p -> setCruise(p, craft, CruiseDirection.SOUTH));
-
-        setSlot(inv, actions, 20, cruiseItem(craft, CruiseDirection.DOWN, curDir),
-                p -> setCruise(p, craft, CruiseDirection.DOWN));
 
         menuActions.put(player.getUniqueId(), actions);
         player.openInventory(inv);
@@ -221,7 +226,28 @@ public class ShipMenuListener implements Listener {
         Bukkit.getPluginManager().callEvent(fake);
     }
 
+    private boolean allowsVertical(PlayerCraft craft) {
+        try {
+            Boolean v = (Boolean) craft.getType().getBoolProperty(
+                    net.countercraft.movecraft.craft.type.CraftType.ALLOW_VERTICAL_MOVEMENT);
+            return Boolean.TRUE.equals(v);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     // ── Item builders ─────────────────────────────────────────────────────────
+
+    private ItemStack disabledItem(String label) {
+        ItemStack is = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text(label).color(NamedTextColor.DARK_GRAY)
+                .decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(Component.text("Недоступно для этого транспорта")
+                .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
+        is.setItemMeta(m);
+        return is;
+    }
 
     private ItemStack cruiseItem(PlayerCraft craft, CruiseDirection dir, CruiseDirection active) {
         boolean on = craft.getCruising() && active == dir;
