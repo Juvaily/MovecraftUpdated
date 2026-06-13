@@ -187,9 +187,14 @@ public class HealthBarListener implements Listener {
 
     private String typeName(Craft craft) {
         try {
-            String n = craft.getType().getNamespacedKey().getKey();
-            if (n != null && !n.isBlank()) {
-                return n.substring(0, 1).toUpperCase() + n.substring(1);
+            // CraftType exposes no public key getter — find the NamespacedKey field via reflection
+            for (var field : craft.getType().getClass().getDeclaredFields()) {
+                if (field.getType() == org.bukkit.NamespacedKey.class) {
+                    field.setAccessible(true);
+                    org.bukkit.NamespacedKey key = (org.bukkit.NamespacedKey) field.get(craft.getType());
+                    String n = key.getKey();
+                    if (!n.isBlank()) return n.substring(0, 1).toUpperCase() + n.substring(1);
+                }
             }
         } catch (Exception ignored) {}
         return "Транспорт";
