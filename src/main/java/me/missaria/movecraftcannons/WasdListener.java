@@ -39,19 +39,25 @@ public class WasdListener implements Listener {
         Location to   = event.getTo();
         if (to == null) return;
 
-        double dx = to.getX() - from.getX();
-        double dz = to.getZ() - from.getZ();
-        if (Math.abs(dx) < MIN_DELTA && Math.abs(dz) < MIN_DELTA) return;
-
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
         if (craft == null || !craft.getPilotLocked()) return;
 
-        // Lock pilot in place — craft carries them during translate
-        Location cancelTo = from.clone();
-        cancelTo.setYaw(to.getYaw());
-        cancelTo.setPitch(to.getPitch());
-        event.setTo(cancelTo);
+        double dx = to.getX() - from.getX();
+        double dy = to.getY() - from.getY();
+        double dz = to.getZ() - from.getZ();
+
+        // Freeze ALL position changes — allow only head rotation
+        boolean posChanged = Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001 || Math.abs(dz) > 0.001;
+        if (posChanged) {
+            Location cancelTo = from.clone();
+            cancelTo.setYaw(to.getYaw());
+            cancelTo.setPitch(to.getPitch());
+            event.setTo(cancelTo);
+        }
+
+        // Only translate on significant horizontal input
+        if (Math.abs(dx) < MIN_DELTA && Math.abs(dz) < MIN_DELTA) return;
 
         long now      = System.currentTimeMillis();
         Long last     = lastMove.get(player.getUniqueId());

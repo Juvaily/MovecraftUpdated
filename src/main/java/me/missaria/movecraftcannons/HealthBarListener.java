@@ -1,8 +1,8 @@
 package me.missaria.movecraftcannons;
 
 import net.countercraft.movecraft.craft.Craft;
+import net.countercraft.movecraft.craft.type.CraftType;
 import net.countercraft.movecraft.events.CraftCollisionExplosionEvent;
-import org.bukkit.NamespacedKey;
 import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.events.CraftRotateEvent;
@@ -14,6 +14,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.entity.Display;
 import org.bukkit.entity.TextDisplay;
@@ -24,6 +25,7 @@ import org.bukkit.util.Transformation;
 import org.joml.AxisAngle4f;
 import org.joml.Vector3f;
 
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,8 +34,9 @@ public class HealthBarListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
 
-    private final Map<UUID, TextDisplay> displays     = new ConcurrentHashMap<>();
-    private final Map<UUID, Craft>       activeCrafts = new ConcurrentHashMap<>();
+    private final Map<UUID, TextDisplay> displays       = new ConcurrentHashMap<>();
+    private final Map<UUID, Craft>       activeCrafts   = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer>     origMoveCounts = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -52,10 +55,13 @@ public class HealthBarListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDetect(CraftDetectEvent event) {
         Craft craft = event.getCraft();
-        UUID uid    = craft.getUUID();
-        int  orig   = craft.getOrigBlockCount();
-        int  curr   = countBlocks(craft);
+        UUID  uid   = craft.getUUID();
+
+        int[] scan = scanCraft(craft);
+        int   curr = scan[0];
+        int   orig = craft.getOrigBlockCount();
         if (orig <= 0) orig = curr;
+        origMoveCounts.put(uid, scan[2]);
 
         Location pos = above(craft.getHitBox(), craft.getWorld());
         int finalOrig = orig;
@@ -66,7 +72,7 @@ public class HealthBarListener implements Listener {
             e.setPersistent(false);
             e.setViewRange(1.5f);
             e.setTransformation(SCALE);
-            e.text(buildText(craft, curr, finalOrig));
+            e.text(buildText(craft, curr, finalOrig, scan[1] == 1, scan[2], scan[2]));
         });
 
         displays.put(uid, disp);
@@ -89,17 +95,16 @@ public class HealthBarListener implements Listener {
         Bukkit.getScheduler().runTaskLater(plugin, () -> remove(uid), 100L);
     }
 
-    // ── Combat block loss ─────────────────────────────────────────────────────
+    // ── Combat refresh ────────────────────────────────────────────────────────
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCollisionExplosion(CraftCollisionExplosionEvent event) {
         UUID uid = event.getCraft().getUUID();
         if (!displays.containsKey(uid)) return;
-        // Schedule 1 tick later so blocks are physically removed first
         Bukkit.getScheduler().runTaskLater(plugin, () -> refreshDisplay(uid), 1L);
     }
 
-    // ── Follow craft movement ─────────────────────────────────────────────────
+    // ── Follow movement ───────────────────────────────────────────────────────
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onTranslate(CraftTranslateEvent event) {
@@ -130,31 +135,52 @@ public class HealthBarListener implements Listener {
         TextDisplay disp = displays.get(uid);
         if (craft == null || disp == null || !disp.isValid()) return;
 
+        int[] scan = scanCraft(craft);
+        int curr = scan[0];
         int orig = craft.getOrigBlockCount();
-        int curr = countBlocks(craft);
         if (orig <= 0) orig = curr;
-        disp.text(buildText(craft, curr, orig));
+        int origMove = origMoveCounts.getOrDefault(uid, scan[2]);
+
+        disp.text(buildText(craft, curr, orig, scan[1] == 1, scan[2], origMove));
     }
 
     private void remove(UUID uid) {
         activeCrafts.remove(uid);
+        origMoveCounts.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Craft scan (one pass) ─────────────────────────────────────────────────
 
-    /** Count non-air blocks actually present in the world within the craft's hitbox. */
-    private int countBlocks(Craft craft) {
+    /** Returns [blockCount, onFire (0/1), moveBlockCount]. */
+    private int[] scanCraft(Craft craft) {
+        EnumSet<Material> moveMats = moveBlockMaterials(craft);
         World world = craft.getWorld();
-        int count = 0;
+        int blocks = 0, fire = 0, move = 0;
+
         for (var loc : craft.getHitBox()) {
-            if (!world.getBlockAt(loc.getX(), loc.getY(), loc.getZ()).getType().isAir()) {
-                count++;
+            Material m = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ()).getType();
+            if (!m.isAir()) blocks++;
+            if (m == Material.FIRE || m == Material.SOUL_FIRE) fire = 1;
+            if (moveMats != null && moveMats.contains(m)) move++;
+            if (fire == 0) {
+                Material above = world.getBlockAt(loc.getX(), loc.getY() + 1, loc.getZ()).getType();
+                if (above == Material.FIRE || above == Material.SOUL_FIRE) fire = 1;
             }
         }
-        return count;
+        return new int[]{blocks, fire, move};
     }
+
+    private EnumSet<Material> moveBlockMaterials(Craft craft) {
+        try {
+            EnumSet<Material> s = craft.getType().getMaterialSetProperty(CraftType.MOVE_BLOCKS);
+            if (s != null && !s.isEmpty()) return s;
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private Location above(HitBox box, World world) {
         double x = (box.getMinX() + box.getMaxX()) / 2.0;
@@ -163,33 +189,28 @@ public class HealthBarListener implements Listener {
         return new Location(world, x, y, z);
     }
 
-    private static final NamespacedKey KEY_SINK_PCT =
-            new NamespacedKey("movecraft", "overall_sink_percent");
+    // ── Text ─────────────────────────────────────────────────────────────────
 
-    private Component buildText(Craft craft, int curr, int orig) {
-        // Read the sink threshold so 0% = craft is about to sink, not physically empty
+    private Component buildText(Craft craft, int curr, int orig,
+                                boolean onFire, int moveBlocks, int origMove) {
+        // Effective health: 100% at full, 0% at sink threshold
         double sinkLost = 0.0;
-        try { sinkLost = craft.getType().getDoubleProperty(KEY_SINK_PCT) / 100.0; }
+        try { sinkLost = craft.getType().getDoubleProperty(CraftType.OVERALL_SINK_PERCENT) / 100.0; }
         catch (Exception ignored) {}
-        double sinkRatio = 1.0 - sinkLost; // fraction of blocks at which craft sinks
-
-        double ratio = frac(curr, orig);
-        double pct;
-        if (sinkLost <= 0.0) {
-            pct = ratio * 100.0;
-        } else {
-            pct = Math.max(0.0, (ratio - sinkRatio) / (1.0 - sinkRatio)) * 100.0;
-        }
-        int    filled = (int) Math.round(pct / 10.0);
+        double ratio     = frac(curr, orig);
+        double sinkRatio = 1.0 - sinkLost;
+        double pct       = sinkLost <= 0
+                ? ratio * 100.0
+                : Math.max(0.0, (ratio - sinkRatio) / (1.0 - sinkRatio)) * 100.0;
+        int filled = (int) Math.round(pct / 10.0);
 
         NamedTextColor hColor = pct > 60 ? NamedTextColor.GREEN
                               : pct > 30 ? NamedTextColor.YELLOW
                               : NamedTextColor.RED;
-
         String filledBar = "█".repeat(filled);
         String emptyBar  = "░".repeat(10 - filled);
 
-        return Component.text()
+        var text = Component.text()
                 .append(Component.text("⚓ " + typeName(craft))
                         .color(NamedTextColor.GOLD)
                         .decoration(TextDecoration.BOLD, true))
@@ -197,21 +218,36 @@ public class HealthBarListener implements Listener {
                 .append(Component.text(filledBar).color(hColor))
                 .append(Component.text(emptyBar).color(NamedTextColor.DARK_GRAY))
                 .append(Component.text(String.format(" %.0f%%", pct)).color(hColor))
-                .append(Component.text(" (" + curr + "/" + orig + ")").color(NamedTextColor.GRAY))
-                .build();
+                .append(Component.text(" (" + curr + "/" + orig + ")").color(NamedTextColor.GRAY));
+
+        // Move blocks line
+        if (origMove > 0) {
+            double movePct = origMove > 0 ? (double) moveBlocks / origMove : 1.0;
+            NamedTextColor mColor = movePct > 0.6 ? NamedTextColor.GREEN
+                                  : movePct > 0.3 ? NamedTextColor.YELLOW
+                                  : NamedTextColor.RED;
+            text.appendNewline()
+                .append(Component.text("⚙ Мувблоки: ")
+                        .color(NamedTextColor.GRAY))
+                .append(Component.text(moveBlocks + "/" + origMove)
+                        .color(mColor));
+        }
+
+        // Fire line
+        if (onFire) {
+            text.appendNewline()
+                .append(Component.text("🔥 Горит!")
+                        .color(NamedTextColor.RED)
+                        .decoration(TextDecoration.BOLD, true));
+        }
+
+        return text.build();
     }
 
     private String typeName(Craft craft) {
         try {
-            // CraftType exposes no public key getter — find the NamespacedKey field via reflection
-            for (var field : craft.getType().getClass().getDeclaredFields()) {
-                if (field.getType() == org.bukkit.NamespacedKey.class) {
-                    field.setAccessible(true);
-                    org.bukkit.NamespacedKey key = (org.bukkit.NamespacedKey) field.get(craft.getType());
-                    String n = key.getKey();
-                    if (!n.isBlank()) return n.substring(0, 1).toUpperCase() + n.substring(1);
-                }
-            }
+            String n = craft.getType().getStringProperty(CraftType.NAME);
+            if (n != null && !n.isBlank()) return n;
         } catch (Exception ignored) {}
         return "Транспорт";
     }
