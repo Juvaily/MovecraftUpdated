@@ -15,6 +15,7 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(new CraftMoveListener(this), this);
         getServer().getPluginManager().registerEvents(new HealthBarListener(this), this);
+        getServer().getPluginManager().registerEvents(new WasdListener(this), this);
 
         getLogger().info("MovecraftCannons enabled.");
         getLogger().info("  Cannon translation fix: setOffset() instead of missing move().");

@@ -4,3 +4,8 @@
 
 # Set to true to log every cannon position update to console.
 debug: false
+
+# WASD control: move the craft by pressing movement keys while piloting.
+wasd:
+  # Minimum milliseconds between craft translations (controls speed).
+  cooldown_ms: 200
