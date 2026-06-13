@@ -38,10 +38,11 @@ public class HealthBarListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
 
-    private final Map<UUID, TextDisplay>               displays       = new ConcurrentHashMap<>();
-    private final Map<UUID, Craft>                     activeCrafts   = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer>                   origBlockCount = new ConcurrentHashMap<>();
-    private final Map<UUID, List<RequiredBlockEntry>>  moveEntries    = new ConcurrentHashMap<>();
+    private final Map<UUID, TextDisplay>              displays       = new ConcurrentHashMap<>();
+    private final Map<UUID, Craft>                    activeCrafts   = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer>                  origBlockCount = new ConcurrentHashMap<>();
+    private final Map<UUID, List<RequiredBlockEntry>> moveEntries    = new ConcurrentHashMap<>();
+    private final Map<UUID, int[]>                    origEntryCount = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -65,11 +66,18 @@ public class HealthBarListener implements Listener {
         List<RequiredBlockEntry> entries = loadMoveEntries(craft);
         moveEntries.put(uid, entries);
 
-        int[] scan = scan(craft, entries);
-        origBlockCount.put(uid, scan[0]);
+        int[] sc = scan(craft, entries);
+        origBlockCount.put(uid, sc[0]);
+        if (entries.size() > 0) {
+            int[] orig = new int[entries.size()];
+            System.arraycopy(sc, 2, orig, 0, entries.size());
+            origEntryCount.put(uid, orig);
+        }
 
-        Location pos = above(craft.getHitBox(), craft.getWorld());
-        int origB = scan[0];
+        Location pos  = above(craft.getHitBox(), craft.getWorld());
+        int      origB = sc[0];
+        int[]    origE = origEntryCount.getOrDefault(uid, new int[0]);
+
         TextDisplay disp = pos.getWorld().spawn(pos, TextDisplay.class, e -> {
             e.setBillboard(Display.Billboard.CENTER);
             e.setDefaultBackground(false);
@@ -77,7 +85,7 @@ public class HealthBarListener implements Listener {
             e.setPersistent(false);
             e.setViewRange(1.5f);
             e.setTransformation(SCALE);
-            e.text(buildText(craft, scan, origB, entries));
+            e.text(buildText(craft, sc, origB, entries, origE));
         });
 
         displays.put(uid, disp);
@@ -143,13 +151,15 @@ public class HealthBarListener implements Listener {
         List<RequiredBlockEntry> entries = moveEntries.getOrDefault(uid, List.of());
         int[] sc   = scan(craft, entries);
         int   orig = origBlockCount.getOrDefault(uid, sc[0]);
-        disp.text(buildText(craft, sc, orig, entries));
+        int[] origE = origEntryCount.getOrDefault(uid, new int[0]);
+        disp.text(buildText(craft, sc, orig, entries, origE));
     }
 
     private void remove(UUID uid) {
         activeCrafts.remove(uid);
         origBlockCount.remove(uid);
         moveEntries.remove(uid);
+        origEntryCount.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
@@ -158,9 +168,9 @@ public class HealthBarListener implements Listener {
 
     /**
      * Single-pass scan. Returns int[] where:
-     *   [0] = block count (allowed, non-fluid)
-     *   [1] = 1 if fire detected, 0 otherwise
-     *   [2 + i] = count of blocks matching entries.get(i)
+     *   [0]     = total craft block count (allowed, non-fluid, non-fire)
+     *   [1]     = 1 if fire detected near craft, 0 otherwise
+     *   [2 + i] = block count matching entries.get(i)
      */
     private int[] scan(Craft craft, List<RequiredBlockEntry> entries) {
         int[] result = new int[2 + entries.size()];
@@ -193,15 +203,7 @@ public class HealthBarListener implements Listener {
         return result;
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private EnumSet<Material> allowedMats(Craft craft) {
-        try {
-            EnumSet<Material> s = craft.getType().getMaterialSetProperty(CraftType.ALLOWED_BLOCKS);
-            if (s != null && !s.isEmpty()) return s;
-        } catch (Exception ignored) {}
-        return null;
-    }
+    // ── Move-block entries ────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
     private List<RequiredBlockEntry> loadMoveEntries(Craft craft) {
@@ -210,14 +212,24 @@ public class HealthBarListener implements Listener {
                     (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS);
             if (set != null && !set.isEmpty()) {
                 if (plugin.isDebug())
-                    plugin.getLogger().info("[moveblocks] loaded " + set.size() + " entries for " + typeName(craft));
+                    plugin.getLogger().info("[moveblocks] " + set.size() + " entries");
                 return new ArrayList<>(set);
             }
         } catch (Exception e) {
             if (plugin.isDebug())
-                plugin.getLogger().info("[moveblocks] failed: " + e.getMessage());
+                plugin.getLogger().info("[moveblocks] error: " + e.getMessage());
         }
         return List.of();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private EnumSet<Material> allowedMats(Craft craft) {
+        try {
+            EnumSet<Material> s = craft.getType().getMaterialSetProperty(CraftType.ALLOWED_BLOCKS);
+            if (s != null && !s.isEmpty()) return s;
+        } catch (Exception ignored) {}
+        return null;
     }
 
     private Location above(HitBox box, World world) {
@@ -230,10 +242,9 @@ public class HealthBarListener implements Listener {
     // ── Text ─────────────────────────────────────────────────────────────────
 
     private Component buildText(Craft craft, int[] sc, int orig,
-                                List<RequiredBlockEntry> entries) {
+                                List<RequiredBlockEntry> entries, int[] origE) {
         int curr = sc[0];
 
-        // Effective health relative to sink threshold
         double sinkLost = 0.0;
         try { sinkLost = craft.getType().getDoubleProperty(CraftType.OVERALL_SINK_PERCENT) / 100.0; }
         catch (Exception ignored) {}
@@ -258,21 +269,23 @@ public class HealthBarListener implements Listener {
                 .append(Component.text(String.format(" %.0f%%", pct)).color(hColor))
                 .append(Component.text(" (" + curr + "/" + orig + ")").color(NamedTextColor.GRAY));
 
-        // Per-entry move blocks lines
+        // Per-entry move-block lines
         for (int i = 0; i < entries.size(); i++) {
-            RequiredBlockEntry entry = entries.get(i);
-            int entryCurr = sc[2 + i];
-            boolean met   = entry.check(entryCurr, curr);
+            RequiredBlockEntry entry  = entries.get(i);
+            int   currE = sc[2 + i];
+            int   origEntry = (origE.length > i) ? origE[i] : currE;
+            if (origEntry <= 0) origEntry = currE;
 
+            boolean met   = entry.check(currE, curr);
             NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
-            String label  = entryLabel(entry);
-            String req    = entryReq(entry, curr);
+
+            double ePct = origEntry > 0 ? Math.max(0.0, (double) currE / origEntry * 100.0) : 100.0;
+            String label = entryLabel(entry);
 
             text.appendNewline()
-                .append(Component.text("⚙ " + label + ": ")
-                        .color(NamedTextColor.GRAY))
-                .append(Component.text(entryCurr + " " + req)
-                        .color(mc));
+                .append(Component.text("⚙ " + label + ": ").color(NamedTextColor.GRAY))
+                .append(Component.text(String.format("%.0f%%", ePct)).color(mc))
+                .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
         }
 
         // Fire indicator
@@ -286,36 +299,21 @@ public class HealthBarListener implements Listener {
         return text.build();
     }
 
-    /** Human-readable label for a RequiredBlockEntry. */
+    /** Label for a moveblock entry: custom name → Russian material name → fallback. */
     private String entryLabel(RequiredBlockEntry entry) {
         String n = entry.getName();
         if (n != null && !n.isBlank()) return n;
-        // Fall back to comma-separated material names (first 2)
+
         var mats = new ArrayList<>(entry.getMaterials());
-        if (mats.isEmpty()) return "?";
-        String first = mats.get(0).toString().replace("_", " ").toLowerCase();
-        if (mats.size() > 1) first += " +" + (mats.size() - 1);
-        return first;
-    }
+        if (mats.isEmpty()) return "Блок";
 
-    /** Threshold string: "≥N" (count) or "≥N% (of total)" (ratio). */
-    private String entryReq(RequiredBlockEntry entry, int total) {
-        double min = entry.getMin();
-        double max = entry.getMax();
-        boolean numMin = entry.isNumericMin();
-        boolean numMax = entry.isNumericMax();
+        Material first = (mats.get(0) instanceof Material m) ? m : null;
+        if (first == null) return "Блок";
 
-        String minStr = numMin
-                ? "≥" + (int) min
-                : "≥" + String.format("%.0f%%", min * 100) + " (" + (int)(min * total) + ")";
-
-        if (max > 0 && max < Double.MAX_VALUE / 2) {
-            String maxStr = numMax
-                    ? "≤" + (int) max
-                    : "≤" + String.format("%.0f%%", max * 100) + " (" + (int)(max * total) + ")";
-            return "[" + minStr + " " + maxStr + "]";
-        }
-        return "[" + minStr + "]";
+        String name = RU_NAMES.getOrDefault(first,
+                first.name().replace('_', ' ').toLowerCase());
+        if (mats.size() > 1) name += " +" + (mats.size() - 1);
+        return name;
     }
 
     private String typeName(Craft craft) {
@@ -328,5 +326,83 @@ public class HealthBarListener implements Listener {
 
     private double frac(int curr, int orig) {
         return orig <= 0 ? 1.0 : Math.max(0.0, Math.min(1.0, (double) curr / orig));
+    }
+
+    // ── Russian material names ────────────────────────────────────────────────
+
+    private static final Map<Material, String> RU_NAMES = new java.util.EnumMap<>(Material.class);
+    static {
+        // Logs / wood
+        RU_NAMES.put(Material.OAK_LOG,      "Дубовое бревно");
+        RU_NAMES.put(Material.SPRUCE_LOG,   "Еловое бревно");
+        RU_NAMES.put(Material.BIRCH_LOG,    "Берёзовое бревно");
+        RU_NAMES.put(Material.JUNGLE_LOG,   "Тропическое бревно");
+        RU_NAMES.put(Material.ACACIA_LOG,   "Акациевое бревно");
+        RU_NAMES.put(Material.DARK_OAK_LOG, "Тёмно-дубовое бревно");
+        RU_NAMES.put(Material.MANGROVE_LOG, "Мангровое бревно");
+        RU_NAMES.put(Material.CHERRY_LOG,   "Вишнёвое бревно");
+        // Planks
+        RU_NAMES.put(Material.OAK_PLANKS,      "Дубовые доски");
+        RU_NAMES.put(Material.SPRUCE_PLANKS,   "Еловые доски");
+        RU_NAMES.put(Material.BIRCH_PLANKS,    "Берёзовые доски");
+        RU_NAMES.put(Material.JUNGLE_PLANKS,   "Тропические доски");
+        RU_NAMES.put(Material.ACACIA_PLANKS,   "Акациевые доски");
+        RU_NAMES.put(Material.DARK_OAK_PLANKS, "Тёмно-дубовые доски");
+        // Wool
+        RU_NAMES.put(Material.WHITE_WOOL,  "Белая шерсть");
+        RU_NAMES.put(Material.ORANGE_WOOL, "Оранжевая шерсть");
+        RU_NAMES.put(Material.YELLOW_WOOL, "Жёлтая шерсть");
+        RU_NAMES.put(Material.BLUE_WOOL,   "Синяя шерсть");
+        RU_NAMES.put(Material.RED_WOOL,    "Красная шерсть");
+        RU_NAMES.put(Material.BLACK_WOOL,  "Чёрная шерсть");
+        RU_NAMES.put(Material.GRAY_WOOL,   "Серая шерсть");
+        RU_NAMES.put(Material.LIGHT_GRAY_WOOL, "Светло-серая шерсть");
+        RU_NAMES.put(Material.CYAN_WOOL,   "Бирюзовая шерсть");
+        RU_NAMES.put(Material.PURPLE_WOOL, "Фиолетовая шерсть");
+        RU_NAMES.put(Material.GREEN_WOOL,  "Зелёная шерсть");
+        RU_NAMES.put(Material.BROWN_WOOL,  "Коричневая шерсть");
+        RU_NAMES.put(Material.MAGENTA_WOOL,"Пурпурная шерсть");
+        RU_NAMES.put(Material.PINK_WOOL,   "Розовая шерсть");
+        RU_NAMES.put(Material.LIME_WOOL,   "Лаймовая шерсть");
+        RU_NAMES.put(Material.LIGHT_BLUE_WOOL, "Голубая шерсть");
+        // Metal blocks
+        RU_NAMES.put(Material.IRON_BLOCK,    "Железный блок");
+        RU_NAMES.put(Material.GOLD_BLOCK,    "Золотой блок");
+        RU_NAMES.put(Material.DIAMOND_BLOCK, "Алмазный блок");
+        RU_NAMES.put(Material.EMERALD_BLOCK, "Блок изумруда");
+        RU_NAMES.put(Material.COPPER_BLOCK,  "Медный блок");
+        RU_NAMES.put(Material.NETHERITE_BLOCK, "Блок незерита");
+        // Stone
+        RU_NAMES.put(Material.STONE,       "Камень");
+        RU_NAMES.put(Material.COBBLESTONE, "Булыжник");
+        RU_NAMES.put(Material.STONE_BRICKS,"Каменный кирпич");
+        RU_NAMES.put(Material.OBSIDIAN,    "Обсидиан");
+        RU_NAMES.put(Material.NETHERRACK,  "Незерак");
+        RU_NAMES.put(Material.GRAVEL,      "Гравий");
+        RU_NAMES.put(Material.SAND,        "Песок");
+        // Glass
+        RU_NAMES.put(Material.GLASS,       "Стекло");
+        RU_NAMES.put(Material.GLASS_PANE,  "Стеклянная панель");
+        // Misc
+        RU_NAMES.put(Material.BOOKSHELF,   "Книжный шкаф");
+        RU_NAMES.put(Material.CHEST,       "Сундук");
+        RU_NAMES.put(Material.FURNACE,     "Печь");
+        RU_NAMES.put(Material.DISPENSER,   "Раздатчик");
+        RU_NAMES.put(Material.PISTON,      "Поршень");
+        RU_NAMES.put(Material.STICKY_PISTON, "Липкий поршень");
+        RU_NAMES.put(Material.TNT,         "ТНТ");
+        RU_NAMES.put(Material.GLOWSTONE,   "Светящийся камень");
+        RU_NAMES.put(Material.SEA_LANTERN, "Морской фонарь");
+        RU_NAMES.put(Material.SHROOMLIGHT, "Грибосвет");
+        RU_NAMES.put(Material.CRAFTING_TABLE, "Верстак");
+        RU_NAMES.put(Material.BARREL,      "Бочка");
+        RU_NAMES.put(Material.BLAST_FURNACE, "Доменная печь");
+        RU_NAMES.put(Material.SMOKER,      "Коптильня");
+        // Sails / banners
+        RU_NAMES.put(Material.WHITE_BANNER,  "Белое знамя");
+        RU_NAMES.put(Material.BLACK_BANNER,  "Чёрное знамя");
+        RU_NAMES.put(Material.BLUE_BANNER,   "Синее знамя");
+        RU_NAMES.put(Material.RED_BANNER,    "Красное знамя");
+        RU_NAMES.put(Material.YELLOW_BANNER, "Жёлтое знамя");
     }
 }

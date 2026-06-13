@@ -32,11 +32,11 @@ public class WasdListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── WASD translation ──────────────────────────────────────────────────────
+    // ── WASD (only in Direct Control — pilotLocked == true) ───────────────────
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
-        // Skip craft-caused pilot teleports so we don't cancel them
+        // Skip craft-caused pilot teleports
         if (event instanceof PlayerTeleportEvent) return;
 
         Location from = event.getFrom();
@@ -49,15 +49,12 @@ public class WasdListener implements Listener {
 
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
-        if (craft == null) return;
+        // Only active in Movecraft's Direct Control Mode (LMB feather → pilotLocked=true)
+        if (craft == null || !craft.getPilotLocked()) return;
 
-        // Freeze pilot position; craft will teleport them after translating
-        Location cancelTo = from.clone();
-        cancelTo.setYaw(to.getYaw());
-        cancelTo.setPitch(to.getPitch());
-        event.setTo(cancelTo);
+        // Don't freeze — pilotLocked mechanism already teleports pilot back to locked position.
+        // We only need to submit the craft translation.
 
-        // Rate limit
         long now      = System.currentTimeMillis();
         Long last     = lastMove.get(player.getUniqueId());
         long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
@@ -75,25 +72,25 @@ public class WasdListener implements Listener {
                 + " (" + tdx + ",0," + tdz + ") notProcessing=" + craft.isNotProcessing());
     }
 
-    // ── Q → rotate left (anticlockwise) ───────────────────────────────────────
+    // ── Q → rotate left — only in Direct Control ──────────────────────────────
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onDropItem(PlayerDropItemEvent event) {
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
-        if (craft == null) return;
+        if (craft == null || !craft.getPilotLocked()) return;
         event.setCancelled(true);
         if (!rotateDebounce(player.getUniqueId())) return;
         rotateCraft(craft, MovecraftRotation.ANTICLOCKWISE);
     }
 
-    // ── F → rotate right (clockwise) ──────────────────────────────────────────
+    // ── F → rotate right — only in Direct Control ─────────────────────────────
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onSwapHands(PlayerSwapHandItemsEvent event) {
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
-        if (craft == null) return;
+        if (craft == null || !craft.getPilotLocked()) return;
         event.setCancelled(true);
         if (!rotateDebounce(player.getUniqueId())) return;
         rotateCraft(craft, MovecraftRotation.CLOCKWISE);
