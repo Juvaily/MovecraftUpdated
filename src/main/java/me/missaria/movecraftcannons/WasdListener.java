@@ -4,8 +4,10 @@ import net.countercraft.movecraft.MovecraftLocation;
 import net.countercraft.movecraft.MovecraftRotation;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
+import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -13,6 +15,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 
@@ -24,11 +27,13 @@ public class WasdListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
 
-    // Last detected direction (dx, dz) per player
-    // Stores last movement direction and timestamp for timer-based translation
     private final Map<UUID, int[]> latestDir  = new ConcurrentHashMap<>();
     private final Map<UUID, Long>  latestTime = new ConcurrentHashMap<>();
     private final Map<UUID, Long>  lastRotate = new ConcurrentHashMap<>();
+
+    // Original flight state saved when entering Direct Control
+    private final Map<UUID, Boolean> savedAllowFlight = new ConcurrentHashMap<>();
+    private final Map<UUID, Boolean> savedFlying      = new ConcurrentHashMap<>();
 
     private static final long   ROTATE_DEBOUNCE = 600L;
     private static final double MOVE_THRESHOLD  = 0.005;
@@ -36,11 +41,64 @@ public class WasdListener implements Listener {
     public WasdListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
         long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
-        long ticks    = Math.max(1L, cooldown / 50L);
-        Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 0L, ticks);
+        Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 0L, Math.max(1L, cooldown / 50L));
+        // Sync flight state with pilotLocked every 10 ticks
+        Bukkit.getScheduler().runTaskTimer(plugin, this::syncFlightState, 0L, 10L);
     }
 
-    // ── Capture direction from movement events ─────────────────────────────────
+    // ── Flight state management ────────────────────────────────────────────────
+
+    /**
+     * Keeps pilots in flight mode while pilotLocked so their client isn't
+     * constrained by ground physics. Hovering in place means the client can
+     * still issue movement packets even when surrounded by ship blocks,
+     * because vertical gravity is cancelled and minor horizontal movement
+     * is possible in the air gap above their feet.
+     */
+    private void syncFlightState() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            UUID uid  = player.getUniqueId();
+            PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
+            boolean locked = craft != null && craft.getPilotLocked();
+            boolean tracked = savedAllowFlight.containsKey(uid);
+
+            if (locked && !tracked) {
+                savedAllowFlight.put(uid, player.getAllowFlight());
+                savedFlying.put(uid, player.isFlying());
+                player.setAllowFlight(true);
+                player.setFlying(true);
+            } else if (!locked && tracked) {
+                restoreFlight(player);
+            }
+        }
+    }
+
+    private void restoreFlight(Player player) {
+        UUID uid = player.getUniqueId();
+        Boolean origAllow = savedAllowFlight.remove(uid);
+        Boolean origFlying = savedFlying.remove(uid);
+        if (origAllow != null) {
+            player.setAllowFlight(origAllow);
+            if (origFlying != null && !origFlying && !origAllow)
+                player.setFlying(false);
+        }
+        latestDir.remove(uid);
+        latestTime.remove(uid);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onCraftRelease(CraftReleaseEvent event) {
+        if (!(event.getCraft() instanceof net.countercraft.movecraft.craft.PilotedCraft pc)) return;
+        Player pilot = pc.getPilot();
+        if (pilot != null) restoreFlight(pilot);
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        restoreFlight(event.getPlayer());
+    }
+
+    // ── WASD direction capture ─────────────────────────────────────────────────
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
@@ -56,12 +114,7 @@ public class WasdListener implements Listener {
 
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
-        if (craft == null || !craft.getPilotLocked()) {
-            UUID uid = player.getUniqueId();
-            latestDir.remove(uid);
-            latestTime.remove(uid);
-            return;
-        }
+        if (craft == null || !craft.getPilotLocked()) return;
 
         int[] dir = resolveDir(player.getLocation().getYaw(), dx, dz);
         if (dir[0] == 0 && dir[1] == 0) return;
@@ -71,14 +124,12 @@ public class WasdListener implements Listener {
         latestTime.put(uid, System.currentTimeMillis());
     }
 
-    // ── Timer: translate at fixed rate; coasts briefly through wall blocks ──────
+    // ── Periodic movement tick ─────────────────────────────────────────────────
 
     private void tick() {
         long now      = System.currentTimeMillis();
         long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
-        // TTL = 1.5× period: allows exactly 1-2 translates per tap while
-        // coasting through momentary wall blocks when W is held.
-        long ttl = cooldown + cooldown / 2;
+        long ttl      = cooldown + cooldown / 2; // 1.5× — coast through brief wall contact
 
         latestDir.forEach((uid, dir) -> {
             Long t = latestTime.get(uid);
@@ -101,16 +152,10 @@ public class WasdListener implements Listener {
 
             if (plugin.isDebug())
                 plugin.getLogger().info("[wasd] " + player.getName()
-                    + " (" + dir[0] + ",0," + dir[1] + ")"
-                    + " age=" + (now - t) + "ms");
+                    + " (" + dir[0] + ",0," + dir[1] + ") age=" + (now - t) + "ms");
         });
     }
 
-    /**
-     * Converts a movement delta + player yaw to a world-space (dx, dz) step.
-     * Yaw is snapped to the nearest 90° cardinal; the delta is projected onto
-     * the resulting forward/right axes to determine which key was pressed.
-     */
     private int[] resolveDir(float rawYaw, double dx, double dz) {
         double y       = ((rawYaw % 360) + 360) % 360;
         int    snapped = ((int) Math.round(y / 90.0) * 90) % 360;
@@ -132,7 +177,7 @@ public class WasdListener implements Listener {
         return new int[]{Math.max(-1, Math.min(1, rdx)), Math.max(-1, Math.min(1, rdz))};
     }
 
-    // ── Q → rotate left — only in Direct Control ──────────────────────────────
+    // ── Q → rotate left, F → rotate right ────────────────────────────────────
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onDropItem(PlayerDropItemEvent event) {
@@ -144,8 +189,6 @@ public class WasdListener implements Listener {
         rotateCraft(craft, MovecraftRotation.ANTICLOCKWISE);
     }
 
-    // ── F → rotate right — only in Direct Control ─────────────────────────────
-
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onSwapHands(PlayerSwapHandItemsEvent event) {
         Player      player = event.getPlayer();
@@ -155,8 +198,6 @@ public class WasdListener implements Listener {
         if (!rotateDebounce(player.getUniqueId())) return;
         rotateCraft(craft, MovecraftRotation.CLOCKWISE);
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private boolean rotateDebounce(UUID uid) {
         long now  = System.currentTimeMillis();

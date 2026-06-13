@@ -530,5 +530,143 @@ public class HealthBarListener implements Listener {
         RU_NAMES.put(Material.HONEYCOMB_BLOCK,   "Блок сот");
         RU_NAMES.put(Material.BAMBOO_BLOCK,      "Бамбуковый блок");
         RU_NAMES.put(Material.STRIPPED_BAMBOO_BLOCK, "Очищ. бамбуковый блок");
+        // More planks / slabs
+        RU_NAMES.put(Material.MANGROVE_PLANKS,   "Мангровые доски");
+        RU_NAMES.put(Material.CHERRY_PLANKS,     "Вишнёвые доски");
+        RU_NAMES.put(Material.BAMBOO_PLANKS,     "Бамбуковые доски");
+        RU_NAMES.put(Material.CRIMSON_PLANKS,    "Багровые доски");
+        RU_NAMES.put(Material.WARPED_PLANKS,     "Искажённые доски");
+        // Nether / End blocks
+        RU_NAMES.put(Material.NETHER_BRICK_BLOCK,    "Адский кирпичный блок");
+        RU_NAMES.put(Material.RED_NETHER_BRICKS,     "Красный адский кирпич");
+        RU_NAMES.put(Material.BASALT,                "Базальт");
+        RU_NAMES.put(Material.POLISHED_BASALT,       "Полированный базальт");
+        RU_NAMES.put(Material.SMOOTH_BASALT,         "Гладкий базальт");
+        RU_NAMES.put(Material.BLACKSTONE,            "Чёрный камень");
+        RU_NAMES.put(Material.POLISHED_BLACKSTONE,   "Полированный чёрный камень");
+        RU_NAMES.put(Material.POLISHED_BLACKSTONE_BRICKS, "Кирпичи из чёрного камня");
+        RU_NAMES.put(Material.SOUL_SAND,             "Адский песок");
+        RU_NAMES.put(Material.SOUL_SOIL,             "Адская земля");
+        RU_NAMES.put(Material.MAGMA_BLOCK,           "Блок магмы");
+        RU_NAMES.put(Material.CRYING_OBSIDIAN,       "Плачущий обсидиан");
+        RU_NAMES.put(Material.ANCIENT_DEBRIS,        "Древний мусор");
+        RU_NAMES.put(Material.END_STONE,             "Камень края");
+        RU_NAMES.put(Material.END_STONE_BRICKS,      "Кирпич из камня края");
+        RU_NAMES.put(Material.PURPUR_BLOCK,          "Пурпурный блок");
+        RU_NAMES.put(Material.PURPUR_PILLAR,         "Пурпурная колонна");
+        // Stone variants
+        RU_NAMES.put(Material.GRANITE,               "Гранит");
+        RU_NAMES.put(Material.POLISHED_GRANITE,      "Полированный гранит");
+        RU_NAMES.put(Material.DIORITE,               "Диорит");
+        RU_NAMES.put(Material.POLISHED_DIORITE,      "Полированный диорит");
+        RU_NAMES.put(Material.ANDESITE,              "Андезит");
+        RU_NAMES.put(Material.POLISHED_ANDESITE,     "Полированный андезит");
+        RU_NAMES.put(Material.SMOOTH_STONE,          "Гладкий камень");
+        RU_NAMES.put(Material.STONE_BRICK_SLAB,      "Плита из каменного кирпича");
+        RU_NAMES.put(Material.MOSSY_STONE_BRICKS,    "Замшелый каменный кирпич");
+        RU_NAMES.put(Material.CRACKED_STONE_BRICKS,  "Растрескавшийся каменный кирпич");
+        RU_NAMES.put(Material.CHISELED_STONE_BRICKS, "Тёсаный каменный кирпич");
+        RU_NAMES.put(Material.COBBLESTONE_SLAB,      "Плита из булыжника");
+        RU_NAMES.put(Material.MOSSY_COBBLESTONE,     "Замшелый булыжник");
+        RU_NAMES.put(Material.SANDSTONE,             "Песчаник");
+        RU_NAMES.put(Material.SMOOTH_SANDSTONE,      "Гладкий песчаник");
+        RU_NAMES.put(Material.CHISELED_SANDSTONE,    "Тёсаный песчаник");
+        RU_NAMES.put(Material.RED_SANDSTONE,         "Красный песчаник");
+        RU_NAMES.put(Material.SMOOTH_RED_SANDSTONE,  "Гладкий красный песчаник");
+        RU_NAMES.put(Material.QUARTZ_BLOCK,          "Блок кварца");
+        RU_NAMES.put(Material.SMOOTH_QUARTZ,         "Гладкий кварц");
+        RU_NAMES.put(Material.QUARTZ_PILLAR,         "Кварцевая колонна");
+        RU_NAMES.put(Material.CHISELED_QUARTZ_BLOCK, "Тёсаный кварц");
+        // Deepslate variants
+        RU_NAMES.put(Material.POLISHED_DEEPSLATE,    "Полированный сланец");
+        RU_NAMES.put(Material.DEEPSLATE_BRICKS,      "Кирпич из сланца");
+        RU_NAMES.put(Material.DEEPSLATE_TILES,       "Плитка из сланца");
+        RU_NAMES.put(Material.CHISELED_DEEPSLATE,    "Тёсаный сланец");
+        // Ores / minerals
+        RU_NAMES.put(Material.IRON_ORE,         "Железная руда");
+        RU_NAMES.put(Material.DEEPSLATE_IRON_ORE, "Рудник железа (сланец)");
+        RU_NAMES.put(Material.COAL_ORE,         "Угольная руда");
+        RU_NAMES.put(Material.LAPIS_BLOCK,      "Блок лазурита");
+        RU_NAMES.put(Material.REDSTONE_BLOCK,   "Блок красного камня");
+        // Glass variants
+        RU_NAMES.put(Material.TINTED_GLASS,          "Тонированное стекло");
+        RU_NAMES.put(Material.WHITE_STAINED_GLASS,   "Белое витражное стекло");
+        RU_NAMES.put(Material.ORANGE_STAINED_GLASS,  "Оранжевое витражное стекло");
+        RU_NAMES.put(Material.MAGENTA_STAINED_GLASS, "Пурпурное витражное стекло");
+        RU_NAMES.put(Material.LIGHT_BLUE_STAINED_GLASS, "Голубое витражное стекло");
+        RU_NAMES.put(Material.YELLOW_STAINED_GLASS,  "Жёлтое витражное стекло");
+        RU_NAMES.put(Material.LIME_STAINED_GLASS,    "Лаймовое витражное стекло");
+        RU_NAMES.put(Material.PINK_STAINED_GLASS,    "Розовое витражное стекло");
+        RU_NAMES.put(Material.GRAY_STAINED_GLASS,    "Серое витражное стекло");
+        RU_NAMES.put(Material.LIGHT_GRAY_STAINED_GLASS, "Светло-серое витражное стекло");
+        RU_NAMES.put(Material.CYAN_STAINED_GLASS,    "Бирюзовое витражное стекло");
+        RU_NAMES.put(Material.PURPLE_STAINED_GLASS,  "Фиолетовое витражное стекло");
+        RU_NAMES.put(Material.BLUE_STAINED_GLASS,    "Синее витражное стекло");
+        RU_NAMES.put(Material.BROWN_STAINED_GLASS,   "Коричневое витражное стекло");
+        RU_NAMES.put(Material.GREEN_STAINED_GLASS,   "Зелёное витражное стекло");
+        RU_NAMES.put(Material.RED_STAINED_GLASS,     "Красное витражное стекло");
+        RU_NAMES.put(Material.BLACK_STAINED_GLASS,   "Чёрное витражное стекло");
+        // Concrete powder
+        RU_NAMES.put(Material.WHITE_CONCRETE_POWDER,   "Белый бетонный порошок");
+        RU_NAMES.put(Material.GRAY_CONCRETE_POWDER,    "Серый бетонный порошок");
+        RU_NAMES.put(Material.BLACK_CONCRETE_POWDER,   "Чёрный бетонный порошок");
+        // Utility / mechanical
+        RU_NAMES.put(Material.OBSERVER,         "Наблюдатель");
+        RU_NAMES.put(Material.DROPPER,          "Дроппер");
+        RU_NAMES.put(Material.HOPPER,           "Воронка");
+        RU_NAMES.put(Material.CAULDRON,         "Котёл");
+        RU_NAMES.put(Material.BREWING_STAND,    "Варочная стойка");
+        RU_NAMES.put(Material.ENCHANTING_TABLE, "Стол зачарования");
+        RU_NAMES.put(Material.ANVIL,            "Наковальня");
+        RU_NAMES.put(Material.BEACON,           "Маяк");
+        RU_NAMES.put(Material.CONDUIT,          "Кондуит");
+        RU_NAMES.put(Material.JUKEBOX,          "Проигрыватель");
+        RU_NAMES.put(Material.NOTE_BLOCK,       "Нотный блок");
+        RU_NAMES.put(Material.LECTERN,          "Аналой");
+        RU_NAMES.put(Material.LOOM,             "Ткацкий станок");
+        RU_NAMES.put(Material.CARTOGRAPHY_TABLE,"Картографический стол");
+        RU_NAMES.put(Material.SMITHING_TABLE,   "Кузнечный стол");
+        RU_NAMES.put(Material.GRINDSTONE,       "Точильный камень");
+        RU_NAMES.put(Material.STONECUTTER,      "Камнерез");
+        RU_NAMES.put(Material.COMPOSTER,        "Компостер");
+        RU_NAMES.put(Material.BELL,             "Колокол");
+        RU_NAMES.put(Material.LIGHTNING_ROD,    "Громоотвод");
+        // Leaves / vegetation (sometimes used in ships)
+        RU_NAMES.put(Material.OAK_LEAVES,      "Дубовые листья");
+        RU_NAMES.put(Material.SPRUCE_LEAVES,   "Еловые листья");
+        RU_NAMES.put(Material.BIRCH_LEAVES,    "Берёзовые листья");
+        RU_NAMES.put(Material.JUNGLE_LEAVES,   "Тропические листья");
+        RU_NAMES.put(Material.ACACIA_LEAVES,   "Акациевые листья");
+        RU_NAMES.put(Material.DARK_OAK_LEAVES, "Тёмно-дубовые листья");
+        RU_NAMES.put(Material.MANGROVE_LEAVES, "Мангровые листья");
+        RU_NAMES.put(Material.CHERRY_LEAVES,   "Вишнёвые листья");
+        // Fence / stairs (structural elements)
+        RU_NAMES.put(Material.OAK_FENCE,       "Дубовый забор");
+        RU_NAMES.put(Material.SPRUCE_FENCE,    "Еловый забор");
+        RU_NAMES.put(Material.DARK_OAK_FENCE,  "Тёмно-дубовый забор");
+        RU_NAMES.put(Material.OAK_STAIRS,      "Дубовые ступени");
+        RU_NAMES.put(Material.SPRUCE_STAIRS,   "Еловые ступени");
+        RU_NAMES.put(Material.DARK_OAK_STAIRS, "Тёмно-дубовые ступени");
+        RU_NAMES.put(Material.COBBLESTONE_STAIRS, "Ступени из булыжника");
+        RU_NAMES.put(Material.STONE_BRICK_STAIRS,  "Ступени из каменного кирпича");
+        // Slabs
+        RU_NAMES.put(Material.OAK_SLAB,        "Дубовая плита");
+        RU_NAMES.put(Material.SPRUCE_SLAB,     "Еловая плита");
+        RU_NAMES.put(Material.DARK_OAK_SLAB,   "Тёмно-дубовая плита");
+        RU_NAMES.put(Material.SMOOTH_STONE_SLAB, "Плита из гладкого камня");
+        // Copper variants
+        RU_NAMES.put(Material.EXPOSED_COPPER,   "Окисленная медь (слабо)");
+        RU_NAMES.put(Material.WEATHERED_COPPER, "Окисленная медь (сильно)");
+        RU_NAMES.put(Material.OXIDIZED_COPPER,  "Полностью окисленная медь");
+        RU_NAMES.put(Material.WAXED_COPPER_BLOCK,          "Медный блок (покрытый воском)");
+        RU_NAMES.put(Material.WAXED_EXPOSED_COPPER,        "Слабо окисленная медь (вощёная)");
+        RU_NAMES.put(Material.WAXED_WEATHERED_COPPER,      "Сильно окисленная медь (вощёная)");
+        RU_NAMES.put(Material.WAXED_OXIDIZED_COPPER,       "Полностью окисленная медь (вощёная)");
+        RU_NAMES.put(Material.CUT_COPPER,       "Резная медь");
+        // Dyes
+        RU_NAMES.put(Material.WHITE_DYE,        "Белый краситель");
+        RU_NAMES.put(Material.RED_DYE,          "Красный краситель");
+        RU_NAMES.put(Material.BLUE_DYE,         "Синий краситель");
+        RU_NAMES.put(Material.BLACK_DYE,        "Чёрный краситель");
     }
 }

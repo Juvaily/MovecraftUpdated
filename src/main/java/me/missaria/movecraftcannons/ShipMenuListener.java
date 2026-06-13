@@ -1,5 +1,6 @@
 package me.missaria.movecraftcannons;
 
+import net.countercraft.movecraft.CruiseDirection;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.kyori.adventure.text.Component;
@@ -25,30 +26,31 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 public class ShipMenuListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
-    // slot index → sign block for each open menu
-    private final Map<UUID, List<Block>> playerMenuSigns = new ConcurrentHashMap<>();
+
+    // Per-player: slot → action to execute on click
+    private final Map<UUID, Consumer<Player>[]> menuActions = new ConcurrentHashMap<>();
 
     public ShipMenuListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
     }
 
-    // ── Open menu: right-click with BOOK while piloting ───────────────────────
+    // ── Open menu: right-click BOOK while piloting ─────────────────────────────
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBookClick(PlayerInteractEvent event) {
         if (event.getAction() != Action.RIGHT_CLICK_AIR
                 && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
-
-        ItemStack item = event.getItem();
+        var item = event.getItem();
         if (item == null || item.getType() != Material.BOOK) return;
 
         Player      player = event.getPlayer();
@@ -59,13 +61,13 @@ public class ShipMenuListener implements Listener {
         openMenu(player, craft);
     }
 
-    // ── Open menu via /shipmenu command ────────────────────────────────────────
+    // ── /shipmenu command entry point ──────────────────────────────────────────
 
     public boolean onCommand(Player player) {
         PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
         if (craft == null) {
-            player.sendMessage(net.kyori.adventure.text.Component.text(
-                    "Вы не управляете транспортом.").color(NamedTextColor.RED));
+            player.sendMessage(Component.text("Вы не управляете транспортом.")
+                    .color(NamedTextColor.RED));
             return true;
         }
         openMenu(player, craft);
@@ -74,60 +76,110 @@ public class ShipMenuListener implements Listener {
 
     // ── Build and open the inventory ───────────────────────────────────────────
 
+    @SuppressWarnings("unchecked")
     private void openMenu(Player player, PlayerCraft craft) {
-        List<Block> signs = findControlSigns(craft);
-
-        int rows = Math.max(1, (int) Math.ceil(signs.size() / 9.0));
-        rows = Math.min(rows, 6);
-        int size = rows * 9;
-
-        String craftName = craftTitle(craft);
+        String title = craftTitle(craft);
         ShipMenuHolder holder = new ShipMenuHolder();
-        Inventory inv = Bukkit.createInventory(holder, size,
-                Component.text("⚓ " + craftName).color(NamedTextColor.DARK_AQUA));
+        Inventory inv = Bukkit.createInventory(holder, 27,
+                Component.text("⚓ " + title).color(NamedTextColor.DARK_AQUA));
         holder.setInventory(inv);
 
-        List<Block> slotSigns = new ArrayList<>();
-        for (int i = 0; i < Math.min(signs.size(), size); i++) {
-            Block sign = signs.get(i);
-            inv.setItem(i, buildItem(sign));
-            slotSigns.add(sign);
-        }
+        Consumer<Player>[] actions = new Consumer[27];
 
-        playerMenuSigns.put(player.getUniqueId(), slotSigns);
+        // ── Row 0: Cruise N / Helm / Cruise toggle OFF ─────────────────────
+        boolean cruising  = craft.getCruising();
+        CruiseDirection curDir = craft.getCruiseDirection();
+
+        setSlot(inv, actions, 1, cruiseItem(craft, CruiseDirection.NORTH, curDir),
+                p -> setCruise(p, craft, CruiseDirection.NORTH));
+
+        Block helmSign = findSign(craft, "[helm]");
+        setSlot(inv, actions, 4, item(Material.NAME_TAG, "§b⛵ Штурвал", "Прямое управление (Direct Control)"),
+                helmSign != null ? p -> simulateClick(p, helmSign) : null);
+
+        setSlot(inv, actions, 7, item(Material.BARRIER, "§cОстановить крейсер", "Отключить крейсерский режим"),
+                p -> stopCruise(craft));
+
+        // ── Row 1: W / Release / E ─────────────────────────────────────────
+        setSlot(inv, actions, 9, cruiseItem(craft, CruiseDirection.WEST, curDir),
+                p -> setCruise(p, craft, CruiseDirection.WEST));
+
+        Block releaseSign = findSign(craft, "Release");
+        setSlot(inv, actions, 13, item(Material.RED_BED, "§4Покинуть судно", "Отпустить транспорт"),
+                p -> doRelease(p, craft, releaseSign));
+
+        setSlot(inv, actions, 17, cruiseItem(craft, CruiseDirection.EAST, curDir),
+                p -> setCruise(p, craft, CruiseDirection.EAST));
+
+        // ── Row 2: Cruise UP / Cruise S / Cruise DOWN ─────────────────────
+        setSlot(inv, actions, 19, cruiseItem(craft, CruiseDirection.UP, curDir),
+                p -> setCruise(p, craft, CruiseDirection.UP));
+
+        setSlot(inv, actions, 22, cruiseItem(craft, CruiseDirection.SOUTH, curDir),
+                p -> setCruise(p, craft, CruiseDirection.SOUTH));
+
+        setSlot(inv, actions, 25, cruiseItem(craft, CruiseDirection.DOWN, curDir),
+                p -> setCruise(p, craft, CruiseDirection.DOWN));
+
+        menuActions.put(player.getUniqueId(), actions);
         player.openInventory(inv);
     }
 
-    // ── Handle clicks inside the menu ─────────────────────────────────────────
+    // ── Handle clicks ──────────────────────────────────────────────────────────
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onMenuClick(InventoryClickEvent event) {
         if (!(event.getInventory().getHolder() instanceof ShipMenuHolder)) return;
         event.setCancelled(true);
-
         if (!(event.getWhoClicked() instanceof Player player)) return;
+
         int slot = event.getRawSlot();
-        if (slot < 0 || slot >= event.getInventory().getSize()) return;
+        if (slot < 0 || slot >= 27) return;
 
-        List<Block> signs = playerMenuSigns.get(player.getUniqueId());
-        if (signs == null || slot >= signs.size()) return;
-        Block signBlock = signs.get(slot);
+        Consumer<Player>[] actions = menuActions.get(player.getUniqueId());
+        if (actions == null || slot >= actions.length || actions[slot] == null) return;
 
-        // Close the inventory first, then simulate the sign click on the next tick
+        Consumer<Player> action = actions[slot];
         player.closeInventory();
-        Bukkit.getScheduler().runTask(plugin, () -> simulateSignClick(player, signBlock));
+        Bukkit.getScheduler().runTask(plugin, () -> action.accept(player));
     }
 
     @EventHandler
     public void onMenuClose(InventoryCloseEvent event) {
         if (!(event.getInventory().getHolder() instanceof ShipMenuHolder)) return;
-        playerMenuSigns.remove(event.getPlayer().getUniqueId());
+        menuActions.remove(event.getPlayer().getUniqueId());
     }
 
-    // ── Simulate right-click on a sign ────────────────────────────────────────
+    // ── Actions ───────────────────────────────────────────────────────────────
 
-    private void simulateSignClick(Player player, Block signBlock) {
-        // Determine the block face to click (use the sign's facing direction)
+    private void setCruise(Player player, PlayerCraft craft, CruiseDirection dir) {
+        if (craft.getCruising() && craft.getCruiseDirection() == dir) {
+            craft.setCruising(false); // toggle off if already active
+        } else {
+            craft.setCruiseDirection(dir);
+            craft.setCruising(true);
+        }
+    }
+
+    private void stopCruise(PlayerCraft craft) {
+        craft.setCruising(false);
+    }
+
+    private void doRelease(Player player, PlayerCraft craft, Block releaseSign) {
+        if (releaseSign != null) {
+            simulateClick(player, releaseSign);
+        } else {
+            // Fire CraftReleaseEvent via Movecraft's release mechanism
+            net.countercraft.movecraft.events.CraftReleaseEvent e =
+                    new net.countercraft.movecraft.events.CraftReleaseEvent(
+                            craft,
+                            net.countercraft.movecraft.events.CraftReleaseEvent.Reason.PLAYER);
+            Bukkit.getPluginManager().callEvent(e);
+            if (!e.isCancelled()) CraftManager.getInstance().release(craft, e.getReason(), false);
+        }
+    }
+
+    private void simulateClick(Player player, Block signBlock) {
         BlockFace face = getSignFace(signBlock);
         PlayerInteractEvent fake = new PlayerInteractEvent(
                 player, Action.RIGHT_CLICK_BLOCK,
@@ -136,138 +188,71 @@ public class ShipMenuListener implements Listener {
         Bukkit.getPluginManager().callEvent(fake);
     }
 
-    // ── Scan craft hitbox for control signs ───────────────────────────────────
+    // ── Item builders ─────────────────────────────────────────────────────────
 
-    private List<Block> findControlSigns(PlayerCraft craft) {
-        List<Block> result = new ArrayList<>();
+    private ItemStack cruiseItem(PlayerCraft craft, CruiseDirection dir, CruiseDirection active) {
+        boolean on = craft.getCruising() && active == dir;
+        String label;
+        Material mat;
+        switch (dir) {
+            case NORTH -> { label = "Север";   mat = Material.ARROW; }
+            case SOUTH -> { label = "Юг";      mat = Material.ARROW; }
+            case EAST  -> { label = "Восток";  mat = Material.ARROW; }
+            case WEST  -> { label = "Запад";   mat = Material.ARROW; }
+            case UP    -> { label = "Вверх";   mat = Material.FEATHER; }
+            case DOWN  -> { label = "Вниз";    mat = Material.POINTED_DRIPSTONE; }
+            default    -> { label = dir.name(); mat = Material.ARROW; }
+        }
+        String prefix = on ? "§a▶ " : "§7";
+        String lore   = on ? "§aКрейсер АКТИВЕН" : "§7Нажмите для крейсера";
+        return item(mat, prefix + "Крейсер: " + label, lore);
+    }
+
+    private ItemStack item(Material mat, String name, String... lorelines) {
+        ItemStack is = new ItemStack(mat);
+        ItemMeta  m  = is.getItemMeta();
+        m.displayName(Component.text(stripFormat(name))
+                .color(name.contains("§a") ? NamedTextColor.GREEN
+                     : name.contains("§c") || name.contains("§4") ? NamedTextColor.RED
+                     : name.contains("§b") ? NamedTextColor.AQUA
+                     : NamedTextColor.WHITE)
+                .decoration(TextDecoration.ITALIC, false));
+        if (lorelines.length > 0) {
+            m.lore(Arrays.stream(lorelines)
+                    .map(l -> (Component) Component.text(l).color(NamedTextColor.GRAY)
+                            .decoration(TextDecoration.ITALIC, false))
+                    .toList());
+        }
+        is.setItemMeta(m);
+        return is;
+    }
+
+    private String stripFormat(String s) {
+        return s.replaceAll("§.", "");
+    }
+
+    private void setSlot(Inventory inv, Consumer<Player>[] actions, int slot,
+                         ItemStack item, Consumer<Player> action) {
+        inv.setItem(slot, item);
+        actions[slot] = action;
+    }
+
+    // ── Sign scanning ─────────────────────────────────────────────────────────
+
+    private Block findSign(PlayerCraft craft, String line0match) {
         var world = craft.getWorld();
-
         for (var loc : craft.getHitBox()) {
             Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
             if (!(block.getState() instanceof Sign sign)) continue;
-            String line0 = stripColor(getLine(sign, 0)).trim();
-            if (isControlSign(line0)) result.add(block);
+            String l0 = stripColor(getLine(sign, 0)).trim();
+            if (l0.equalsIgnoreCase(line0match)) return block;
         }
-        return result;
+        return null;
     }
-
-    private boolean isControlSign(String line0) {
-        String lo = line0.toLowerCase();
-        return lo.startsWith("move:")
-                || lo.startsWith("cruise:")
-                || lo.startsWith("ascend:")
-                || lo.startsWith("descend:")
-                || lo.startsWith("speed:")
-                || lo.equals("[helm]")
-                || lo.equalsIgnoreCase("release")
-                || lo.equalsIgnoreCase("contacts");
-    }
-
-    // ── Build inventory item for a sign ───────────────────────────────────────
-
-    private ItemStack buildItem(Block signBlock) {
-        Sign sign = (Sign) signBlock.getState();
-        String line0 = stripColor(getLine(sign, 0)).trim();
-        String line1 = stripColor(getLine(sign, 1)).trim();
-
-        Material mat;
-        String   label;
-        NamedTextColor color = NamedTextColor.WHITE;
-
-        String lo = line0.toLowerCase();
-        if (lo.startsWith("move:")) {
-            mat   = directionMaterial(line1);
-            label = directionLabel(line1);
-            color = NamedTextColor.YELLOW;
-        } else if (lo.startsWith("cruise:")) {
-            boolean on = lo.contains("on");
-            mat   = on ? Material.GREEN_DYE : Material.RED_DYE;
-            label = on ? "Крейсер: ВКЛ" : "Крейсер: ВЫКЛ";
-            color = on ? NamedTextColor.GREEN : NamedTextColor.RED;
-        } else if (lo.startsWith("ascend:")) {
-            boolean on = lo.contains("on");
-            mat   = Material.FEATHER;
-            label = on ? "Подъём: ВКЛ" : "Подъём: ВЫКЛ";
-            color = on ? NamedTextColor.GREEN : NamedTextColor.RED;
-        } else if (lo.startsWith("descend:")) {
-            boolean on = lo.contains("on");
-            mat   = Material.POINTED_DRIPSTONE;
-            label = on ? "Спуск: ВКЛ" : "Спуск: ВЫКЛ";
-            color = on ? NamedTextColor.GREEN : NamedTextColor.RED;
-        } else if (lo.startsWith("speed:")) {
-            mat   = Material.CLOCK;
-            label = "Скорость" + (line1.isBlank() ? "" : ": " + line1);
-            color = NamedTextColor.GOLD;
-        } else if (lo.equals("[helm]")) {
-            mat   = Material.NAME_TAG;
-            label = "Штурвал (прямое управление)";
-            color = NamedTextColor.AQUA;
-        } else if (lo.equalsIgnoreCase("release")) {
-            mat   = Material.BARRIER;
-            label = "Покинуть судно";
-            color = NamedTextColor.RED;
-        } else if (lo.equalsIgnoreCase("contacts")) {
-            mat   = Material.SPYGLASS;
-            label = "Контакты";
-            color = NamedTextColor.LIGHT_PURPLE;
-        } else {
-            mat   = Material.OAK_SIGN;
-            label = line0;
-        }
-
-        ItemStack item = new ItemStack(mat);
-        ItemMeta  meta = item.getItemMeta();
-        meta.displayName(Component.text(label).color(color)
-                .decoration(TextDecoration.ITALIC, false));
-
-        // Show additional sign lines as lore
-        List<Component> lore = new ArrayList<>();
-        for (int i = 1; i <= 3; i++) {
-            String l = stripColor(getLine(sign, i)).trim();
-            if (!l.isBlank())
-                lore.add(Component.text(l).color(NamedTextColor.GRAY)
-                        .decoration(TextDecoration.ITALIC, false));
-        }
-        if (!lore.isEmpty()) meta.lore(lore);
-
-        item.setItemMeta(meta);
-        return item;
-    }
-
-    // ── Direction helpers ──────────────────────────────────────────────────────
-
-    private Material directionMaterial(String line1) {
-        String dir = line1.toLowerCase().split(" ")[0];
-        return switch (dir) {
-            case "up"    -> Material.POINTED_DRIPSTONE;
-            case "down"  -> Material.GRAVEL;
-            default      -> Material.ARROW;
-        };
-    }
-
-    private String directionLabel(String line1) {
-        if (line1.isBlank()) return "Движение";
-        String[] parts = line1.trim().split("\\s+");
-        String dir = switch (parts[0].toLowerCase()) {
-            case "north" -> "Север";
-            case "south" -> "Юг";
-            case "east"  -> "Восток";
-            case "west"  -> "Запад";
-            case "up"    -> "Вверх";
-            case "down"  -> "Вниз";
-            default      -> parts[0];
-        };
-        return "Движение: " + dir + (parts.length > 1 ? " ×" + parts[1] : "");
-    }
-
-    // ── Utilities ─────────────────────────────────────────────────────────────
 
     private String getLine(Sign sign, int index) {
-        try {
-            return sign.getSide(Side.FRONT).getLine(index);
-        } catch (Exception e) {
-            return sign.getLine(index);
-        }
+        try { return sign.getSide(Side.FRONT).getLine(index); }
+        catch (Exception e) { return sign.getLine(index); }
     }
 
     @SuppressWarnings("deprecation")
@@ -278,19 +263,14 @@ public class ShipMenuListener implements Listener {
     private BlockFace getSignFace(Block block) {
         try {
             var data = block.getBlockData();
-            if (data instanceof org.bukkit.block.data.type.WallSign ws)
-                return ws.getFacing();
-            if (data instanceof org.bukkit.block.data.type.Sign s)
-                return BlockFace.SOUTH; // floor sign — use south as default click face
+            if (data instanceof org.bukkit.block.data.type.WallSign ws) return ws.getFacing();
         } catch (Exception ignored) {}
         return BlockFace.SOUTH;
     }
 
     private String craftTitle(PlayerCraft craft) {
-        try {
-            String n = craft.getName();
-            if (n != null && !n.isBlank()) return n;
-        } catch (Exception ignored) {}
+        try { String n = craft.getName(); if (n != null && !n.isBlank()) return n; }
+        catch (Exception ignored) {}
         try {
             String n = craft.getType().getStringProperty(
                     net.countercraft.movecraft.craft.type.CraftType.NAME);
