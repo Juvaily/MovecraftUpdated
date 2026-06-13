@@ -70,8 +70,11 @@ public class WasdListener implements Listener {
             if (locked && !tracked) {
                 savedAllowFlight.put(uid, player.getAllowFlight());
                 savedFlying.put(uid, player.isFlying());
-                savedWalkSpeed.put(uid, player.getWalkSpeed());
-                savedFlySpeed.put(uid, player.getFlySpeed());
+                // Guard: if speed is already at PILOT_SPEED (failed restore from prev session), save default
+                float curWalk = player.getWalkSpeed();
+                float curFly  = player.getFlySpeed();
+                savedWalkSpeed.put(uid, curWalk > PILOT_SPEED * 2 ? curWalk : 0.2f);
+                savedFlySpeed.put(uid,  curFly  > PILOT_SPEED * 2 ? curFly  : 0.1f);
                 player.setAllowFlight(true);
                 player.setFlying(true);
                 player.setWalkSpeed(PILOT_SPEED);
@@ -91,9 +94,16 @@ public class WasdListener implements Listener {
         if (origAllow != null) {
             player.setAllowFlight(origAllow);
             if (origFlying != null && !origFlying && !origAllow) player.setFlying(false);
+        } else {
+            // Failsafe: no saved state, still reset speeds to defaults
+            player.setWalkSpeed(0.2f);
+            player.setFlySpeed(0.1f);
+            latestDir.remove(uid);
+            latestTime.remove(uid);
+            return;
         }
-        if (origWalk != null) player.setWalkSpeed(origWalk);
-        if (origFly  != null) player.setFlySpeed(origFly);
+        player.setWalkSpeed(origWalk != null ? origWalk : 0.2f);
+        player.setFlySpeed(origFly   != null ? origFly  : 0.1f);
         latestDir.remove(uid);
         latestTime.remove(uid);
     }
@@ -112,7 +122,7 @@ public class WasdListener implements Listener {
 
     // ── WASD direction capture ─────────────────────────────────────────────────
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
         if (event instanceof PlayerTeleportEvent) return;
 
@@ -134,6 +144,12 @@ public class WasdListener implements Listener {
         UUID uid = player.getUniqueId();
         latestDir.put(uid, dir);
         latestTime.put(uid, System.currentTimeMillis());
+
+        // Push player back to original position (keep look direction)
+        Location pushBack = from.clone();
+        pushBack.setYaw(to.getYaw());
+        pushBack.setPitch(to.getPitch());
+        event.setTo(pushBack);
     }
 
     // ── Periodic movement tick ─────────────────────────────────────────────────
