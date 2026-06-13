@@ -537,7 +537,6 @@ public class HealthBarListener implements Listener {
         RU_NAMES.put(Material.CRIMSON_PLANKS,    "Багровые доски");
         RU_NAMES.put(Material.WARPED_PLANKS,     "Искажённые доски");
         // Nether / End blocks
-        RU_NAMES.put(Material.NETHER_BRICK_BLOCK,    "Адский кирпичный блок");
         RU_NAMES.put(Material.RED_NETHER_BRICKS,     "Красный адский кирпич");
         RU_NAMES.put(Material.BASALT,                "Базальт");
         RU_NAMES.put(Material.POLISHED_BASALT,       "Полированный базальт");
