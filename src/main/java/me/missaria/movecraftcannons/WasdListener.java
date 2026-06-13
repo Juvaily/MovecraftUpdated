@@ -31,12 +31,17 @@ public class WasdListener implements Listener {
     private final Map<UUID, Long>  latestTime = new ConcurrentHashMap<>();
     private final Map<UUID, Long>  lastRotate = new ConcurrentHashMap<>();
 
-    // Original flight state saved when entering Direct Control
+    // Saved player state while in Direct Control
     private final Map<UUID, Boolean> savedAllowFlight = new ConcurrentHashMap<>();
     private final Map<UUID, Boolean> savedFlying      = new ConcurrentHashMap<>();
+    private final Map<UUID, Float>   savedWalkSpeed   = new ConcurrentHashMap<>();
+    private final Map<UUID, Float>   savedFlySpeed    = new ConcurrentHashMap<>();
 
-    private static final long   ROTATE_DEBOUNCE = 600L;
-    private static final double MOVE_THRESHOLD  = 0.005;
+    private static final long  ROTATE_DEBOUNCE = 600L;
+    // Minimum speed: slow enough to be invisible, non-zero so client always sends packets
+    private static final float PILOT_SPEED     = 0.005f;
+    // Low threshold to catch near-zero deltas from minimum speed
+    private static final double MOVE_THRESHOLD = 0.001;
 
     public WasdListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
@@ -49,24 +54,28 @@ public class WasdListener implements Listener {
     // ── Flight state management ────────────────────────────────────────────────
 
     /**
-     * Keeps pilots in flight mode while pilotLocked so their client isn't
-     * constrained by ground physics. Hovering in place means the client can
-     * still issue movement packets even when surrounded by ship blocks,
-     * because vertical gravity is cancelled and minor horizontal movement
-     * is possible in the air gap above their feet.
+     * While pilotLocked:
+     * - Flying mode (no gravity, client can drift freely through air pockets)
+     * - WalkSpeed / FlySpeed set to PILOT_SPEED (~0): movement is nearly invisible
+     *   but non-zero, so the client sends a movement packet every tick while a key
+     *   is held — even near walls where at least a tiny gap exists.
      */
     private void syncFlightState() {
         for (Player player : Bukkit.getOnlinePlayers()) {
-            UUID uid  = player.getUniqueId();
+            UUID uid = player.getUniqueId();
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
-            boolean locked = craft != null && craft.getPilotLocked();
+            boolean locked  = craft != null && craft.getPilotLocked();
             boolean tracked = savedAllowFlight.containsKey(uid);
 
             if (locked && !tracked) {
                 savedAllowFlight.put(uid, player.getAllowFlight());
                 savedFlying.put(uid, player.isFlying());
+                savedWalkSpeed.put(uid, player.getWalkSpeed());
+                savedFlySpeed.put(uid, player.getFlySpeed());
                 player.setAllowFlight(true);
                 player.setFlying(true);
+                player.setWalkSpeed(PILOT_SPEED);
+                player.setFlySpeed(PILOT_SPEED);
             } else if (!locked && tracked) {
                 restoreFlight(player);
             }
@@ -75,13 +84,16 @@ public class WasdListener implements Listener {
 
     private void restoreFlight(Player player) {
         UUID uid = player.getUniqueId();
-        Boolean origAllow = savedAllowFlight.remove(uid);
+        Boolean origAllow  = savedAllowFlight.remove(uid);
         Boolean origFlying = savedFlying.remove(uid);
+        Float   origWalk   = savedWalkSpeed.remove(uid);
+        Float   origFly    = savedFlySpeed.remove(uid);
         if (origAllow != null) {
             player.setAllowFlight(origAllow);
-            if (origFlying != null && !origFlying && !origAllow)
-                player.setFlying(false);
+            if (origFlying != null && !origFlying && !origAllow) player.setFlying(false);
         }
+        if (origWalk != null) player.setWalkSpeed(origWalk);
+        if (origFly  != null) player.setFlySpeed(origFly);
         latestDir.remove(uid);
         latestTime.remove(uid);
     }
@@ -129,7 +141,10 @@ public class WasdListener implements Listener {
     private void tick() {
         long now      = System.currentTimeMillis();
         long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
-        long ttl      = cooldown + cooldown / 2; // 1.5× — coast through brief wall contact
+        // With near-zero speed the client sends events every tick while key is held.
+        // Use a generous TTL (3s) so the ship keeps moving through brief movement gaps,
+        // but stops promptly (~3s) after the key is actually released.
+        long ttl = 3000L;
 
         latestDir.forEach((uid, dir) -> {
             Long t = latestTime.get(uid);
