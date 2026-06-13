@@ -3,7 +3,7 @@ package me.missaria.movecraftcannons;
 import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.craft.type.CraftType;
 import net.countercraft.movecraft.craft.type.RequiredBlockEntry;
-import net.countercraft.movecraft.craft.type.property.RequiredBlockProperty;
+import org.bukkit.NamespacedKey;
 import net.countercraft.movecraft.events.CraftCollisionExplosionEvent;
 import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
@@ -225,7 +225,7 @@ public class HealthBarListener implements Listener {
     // ── Required block entries ────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
-    private List<RequiredBlockEntry> loadEntries(Craft craft, RequiredBlockProperty prop, String tag) {
+    private List<RequiredBlockEntry> loadEntries(Craft craft, NamespacedKey prop, String tag) {
         try {
             Set<RequiredBlockEntry> set =
                     (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(prop);
