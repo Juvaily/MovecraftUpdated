@@ -5,6 +5,7 @@ import net.countercraft.movecraft.MovecraftRotation;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -24,17 +25,22 @@ public class WasdListener implements Listener {
     private final MovecraftCannonsPlugin plugin;
 
     // Last detected direction (dx, dz) per player
-    private final Map<UUID, Long> lastMove   = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> lastRotate = new ConcurrentHashMap<>();
+    // Stores last movement direction and timestamp for timer-based translation
+    private final Map<UUID, int[]> latestDir  = new ConcurrentHashMap<>();
+    private final Map<UUID, Long>  latestTime = new ConcurrentHashMap<>();
+    private final Map<UUID, Long>  lastRotate = new ConcurrentHashMap<>();
 
     private static final long   ROTATE_DEBOUNCE = 600L;
     private static final double MOVE_THRESHOLD  = 0.005;
 
     public WasdListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
+        long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
+        long ticks    = Math.max(1L, cooldown / 50L);
+        Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 0L, ticks);
     }
 
-    // ── WASD: translate directly in the event with per-player cooldown ─────────
+    // ── Capture direction from movement events ─────────────────────────────────
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
@@ -50,23 +56,54 @@ public class WasdListener implements Listener {
 
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
-        if (craft == null || !craft.getPilotLocked()) return;
-
-        UUID uid      = player.getUniqueId();
-        long now      = System.currentTimeMillis();
-        long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
-        Long last     = lastMove.get(uid);
-        if (last != null && now - last < cooldown) return;
-        lastMove.put(uid, now);
+        if (craft == null || !craft.getPilotLocked()) {
+            UUID uid = player.getUniqueId();
+            latestDir.remove(uid);
+            latestTime.remove(uid);
+            return;
+        }
 
         int[] dir = resolveDir(player.getLocation().getYaw(), dx, dz);
         if (dir[0] == 0 && dir[1] == 0) return;
 
-        craft.translate(dir[0], 0, dir[1]);
+        UUID uid = player.getUniqueId();
+        latestDir.put(uid, dir);
+        latestTime.put(uid, System.currentTimeMillis());
+    }
 
-        if (plugin.isDebug())
-            plugin.getLogger().info("[wasd] " + player.getName()
-                + " (" + dir[0] + ",0," + dir[1] + ") notProcessing=" + craft.isNotProcessing());
+    // ── Timer: translate at fixed rate; coasts briefly through wall blocks ──────
+
+    private void tick() {
+        long now      = System.currentTimeMillis();
+        long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
+        // TTL = 1.5× period: allows exactly 1-2 translates per tap while
+        // coasting through momentary wall blocks when W is held.
+        long ttl = cooldown + cooldown / 2;
+
+        latestDir.forEach((uid, dir) -> {
+            Long t = latestTime.get(uid);
+            if (t == null || now - t > ttl) {
+                latestDir.remove(uid);
+                latestTime.remove(uid);
+                return;
+            }
+            if (dir[0] == 0 && dir[1] == 0) return;
+
+            Player player = Bukkit.getPlayer(uid);
+            if (player == null) { latestDir.remove(uid); latestTime.remove(uid); return; }
+
+            PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
+            if (craft == null || !craft.getPilotLocked()) {
+                latestDir.remove(uid); latestTime.remove(uid); return;
+            }
+
+            craft.translate(dir[0], 0, dir[1]);
+
+            if (plugin.isDebug())
+                plugin.getLogger().info("[wasd] " + player.getName()
+                    + " (" + dir[0] + ",0," + dir[1] + ")"
+                    + " age=" + (now - t) + "ms");
+        });
     }
 
     /**

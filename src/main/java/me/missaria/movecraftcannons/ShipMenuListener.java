@@ -41,15 +41,15 @@ public class ShipMenuListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── Open menu on right-click with compass while piloting ───────────────────
+    // ── Open menu: right-click with BOOK while piloting ───────────────────────
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onCompassClick(PlayerInteractEvent event) {
+    public void onBookClick(PlayerInteractEvent event) {
         if (event.getAction() != Action.RIGHT_CLICK_AIR
                 && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
 
         ItemStack item = event.getItem();
-        if (item == null || item.getType() != Material.COMPASS) return;
+        if (item == null || item.getType() != Material.BOOK) return;
 
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
@@ -57,6 +57,19 @@ public class ShipMenuListener implements Listener {
 
         event.setCancelled(true);
         openMenu(player, craft);
+    }
+
+    // ── Open menu via /shipmenu command ────────────────────────────────────────
+
+    public boolean onCommand(Player player) {
+        PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
+        if (craft == null) {
+            player.sendMessage(net.kyori.adventure.text.Component.text(
+                    "Вы не управляете транспортом.").color(NamedTextColor.RED));
+            return true;
+        }
+        openMenu(player, craft);
+        return true;
     }
 
     // ── Build and open the inventory ───────────────────────────────────────────

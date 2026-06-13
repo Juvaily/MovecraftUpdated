@@ -344,13 +344,10 @@ public class HealthBarListener implements Listener {
             if (!mats.isEmpty()) {
                 Material first = (Material) mats.get(0);
                 String ru = RU_NAMES.get(first);
-                if (ru != null)
-                    return mats.size() > 1 ? ru + " +" + (mats.size() - 1) : ru;
-                // Not in map — fall through to entry name or raw material name
+                if (ru != null) return ru;
                 String custom = entry.getName();
                 if (custom != null && !custom.isBlank()) return custom;
-                String raw = first.name().replace('_', ' ').toLowerCase();
-                return mats.size() > 1 ? raw + " +" + (mats.size() - 1) : raw;
+                return first.name().replace('_', ' ').toLowerCase();
             }
         } catch (Exception ignored) {}
 
