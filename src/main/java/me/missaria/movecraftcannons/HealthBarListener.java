@@ -15,6 +15,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -91,7 +92,7 @@ public class HealthBarListener implements Listener {
 
         TextDisplay disp = pos.getWorld().spawn(pos, TextDisplay.class, e -> {
             e.setBillboard(Display.Billboard.CENTER);
-            e.setDefaultBackground(false);
+            e.setBackgroundColor(Color.fromARGB(200, 0, 0, 0));
             e.setShadowed(true);
             e.setPersistent(false);
             e.setViewRange(1.5f);
@@ -280,7 +281,7 @@ public class HealthBarListener implements Listener {
                               : NamedTextColor.RED;
 
         var text = Component.text()
-                .append(Component.text("⚓ " + typeName(craft))
+                .append(Component.text(typeName(craft))
                         .color(NamedTextColor.GOLD)
                         .decoration(TextDecoration.BOLD, true))
                 .appendNewline()
@@ -306,20 +307,21 @@ public class HealthBarListener implements Listener {
                 .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
         }
 
-        // Fly-block lines (🪂)
+        // Fly-block lines (🪂) — skip entries with no blocks at detect time
         int base = 2 + entries.size();
         for (int i = 0; i < fEntries.size(); i++) {
+            int origEntry = (origF.length > i) ? origF[i] : 0;
+            if (origEntry <= 0) continue; // craft doesn't use this fly block
+
             RequiredBlockEntry entry = fEntries.get(i);
-            int currE    = sc[base + i];
-            int origEntry = (origF.length > i) ? origF[i] : currE;
-            if (origEntry <= 0) origEntry = currE;
+            int currE = sc[base + i];
 
             boolean met = entry.check(currE, curr);
             NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
-            double ePct = origEntry > 0 ? Math.max(0.0, (double) currE / origEntry * 100.0) : 100.0;
+            double ePct = Math.max(0.0, (double) currE / origEntry * 100.0);
 
             text.appendNewline()
-                .append(Component.text("🪂 " + entryLabel(entry) + ": ").color(NamedTextColor.GRAY))
+                .append(Component.text("🧱 " + entryLabel(entry) + ": ").color(NamedTextColor.GRAY))
                 .append(Component.text(String.format("%.0f%%", ePct)).color(mc))
                 .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
         }

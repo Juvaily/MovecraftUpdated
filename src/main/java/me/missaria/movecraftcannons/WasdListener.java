@@ -6,16 +6,15 @@ import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerDropItemEvent;
-import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
-import org.bukkit.event.player.PlayerTeleportEvent;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,13 +22,15 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WasdListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
-    // Last direction (dx, dz) and timestamp of last movement event per player
-    private final Map<UUID, int[]> latestDir  = new ConcurrentHashMap<>();
-    private final Map<UUID, Long>  latestTime = new ConcurrentHashMap<>();
-    private final Map<UUID, Long>  lastRotate = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastRotate = new ConcurrentHashMap<>();
 
-    private static final long   ROTATE_DEBOUNCE = 600L;
-    private static final double MOVE_THRESHOLD  = 0.005;
+    private static final long ROTATE_DEBOUNCE = 600L;
+
+    // Cached NMS fields — discovered once on first pilot login
+    private volatile Field xxaField;
+    private volatile Field zzaField;
+    private volatile boolean nmsReady  = false; // true once init succeeded
+    private volatile boolean nmsFailed = false; // true once init gave up
 
     public WasdListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
@@ -37,98 +38,97 @@ public class WasdListener implements Listener {
         Bukkit.getScheduler().runTaskTimer(plugin, this::tickMovement, 0L, ticks);
     }
 
-    // ── Capture movement direction ─────────────────────────────────────────────
-
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onPlayerMove(PlayerMoveEvent event) {
-        // Ignore server-side teleports (Movecraft's pilotLocked return)
-        if (event instanceof PlayerTeleportEvent) return;
-
-        Location from = event.getFrom();
-        Location to   = event.getTo();
-        if (to == null) return;
-
-        double dx = to.getX() - from.getX();
-        double dz = to.getZ() - from.getZ();
-        if (Math.abs(dx) < MOVE_THRESHOLD && Math.abs(dz) < MOVE_THRESHOLD) return;
-
-        Player      player = event.getPlayer();
-        PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
-        if (craft == null || !craft.getPilotLocked()) {
-            UUID uid = player.getUniqueId();
-            latestDir.remove(uid);
-            latestTime.remove(uid);
-            return;
-        }
-
-        int[] dir = resolveDir(player.getLocation().getYaw(), dx, dz);
-        UUID uid  = player.getUniqueId();
-        latestDir.put(uid, dir);
-        latestTime.put(uid, System.currentTimeMillis());
-    }
-
     // ── Periodic movement tick ─────────────────────────────────────────────────
 
     private void tickMovement() {
-        long now      = System.currentTimeMillis();
-        long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
-        // If no movement event for 3 periods, player has released keys
-        long inputTTL = cooldown * 3;
-
-        latestDir.forEach((uid, dir) -> {
-            Long t = latestTime.get(uid);
-            if (t == null || now - t > inputTTL) {
-                latestDir.remove(uid);
-                latestTime.remove(uid);
-                return;
-            }
-            if (dir[0] == 0 && dir[1] == 0) return;
-
-            Player player = Bukkit.getPlayer(uid);
-            if (player == null) { latestDir.remove(uid); latestTime.remove(uid); return; }
-
+        for (Player player : Bukkit.getOnlinePlayers()) {
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
-            if (craft == null || !craft.getPilotLocked()) {
-                latestDir.remove(uid);
-                latestTime.remove(uid);
-                return;
-            }
+            if (craft == null || !craft.getPilotLocked()) continue;
+
+            int[] dir = getInputDir(player);
+            if (dir == null || (dir[0] == 0 && dir[1] == 0)) continue;
 
             craft.translate(dir[0], 0, dir[1]);
 
             if (plugin.isDebug())
                 plugin.getLogger().info("[wasd] " + player.getName()
                     + " (" + dir[0] + ",0," + dir[1] + ") notProcessing=" + craft.isNotProcessing());
-        });
+        }
+    }
+
+    // ── NMS input reading ──────────────────────────────────────────────────────
+
+    private int[] getInputDir(Player player) {
+        if (nmsFailed) return null;
+        try {
+            if (!nmsReady) initNmsFields(player);
+            if (!nmsReady) return null;
+
+            Object handle = player.getClass().getMethod("getHandle").invoke(player);
+            float xxa = (float) xxaField.get(handle);
+            float zza = (float) zzaField.get(handle);
+            return resolveFromAxes(player.getLocation().getYaw(), xxa, zza);
+        } catch (Exception e) {
+            if (plugin.isDebug())
+                plugin.getLogger().warning("[wasd] NMS error: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private synchronized void initNmsFields(Player player) {
+        if (nmsReady || nmsFailed) return;
+        try {
+            Method getHandle = player.getClass().getMethod("getHandle");
+            Object nmsPlayer = getHandle.invoke(player);
+            Class<?> cls = nmsPlayer.getClass();
+            while (cls != null) {
+                try {
+                    Field xf = cls.getDeclaredField("xxa");
+                    Field zf = cls.getDeclaredField("zza");
+                    if (xf.getType() == float.class && zf.getType() == float.class) {
+                        xf.setAccessible(true);
+                        zf.setAccessible(true);
+                        xxaField = xf;
+                        zzaField = zf;
+                        nmsReady = true;
+                        plugin.getLogger().info("[wasd] NMS input fields found in " + cls.getSimpleName());
+                        return;
+                    }
+                } catch (NoSuchFieldException ignored) {}
+                cls = cls.getSuperclass();
+            }
+            plugin.getLogger().warning("[wasd] NMS xxa/zza not found — WASD disabled");
+            nmsFailed = true;
+        } catch (Exception e) {
+            plugin.getLogger().warning("[wasd] NMS init failed: " + e.getMessage());
+            nmsFailed = true;
+        }
     }
 
     /**
-     * Converts a movement delta + player yaw into a world-space (dx, dz) translation vector.
-     * Yaw is snapped to the nearest 90° cardinal so the craft moves in clean block steps.
-     * The delta is projected onto the forward/right vectors to determine which keys were pressed.
+     * Converts NMS xxa/zza axes into a world-space (dx, dz) translation vector.
+     * xxa = strafe input: positive = D (right), negative = A (left).
+     * zza = forward input: positive = W (forward), negative = S (backward).
+     * Yaw is snapped to nearest 90° cardinal for clean block-aligned movement.
      */
-    private int[] resolveDir(float rawYaw, double dx, double dz) {
-        double yaw     = ((rawYaw % 360) + 360) % 360;
-        int    snapped = ((int) Math.round(yaw / 90.0) * 90) % 360;
+    private int[] resolveFromAxes(float yaw, float xxa, float zza) {
+        if (Math.abs(xxa) < 0.1f && Math.abs(zza) < 0.1f) return new int[]{0, 0};
 
-        // Forward unit vector in world XZ for the snapped yaw
+        double y = ((yaw % 360) + 360) % 360;
+        int snapped = ((int) Math.round(y / 90.0) * 90) % 360;
+
         int fx = -(int) Math.round(Math.sin(Math.toRadians(snapped)));
         int fz =  (int) Math.round(Math.cos(Math.toRadians(snapped)));
-        // Right unit vector (yaw + 90°)
         int rx = -(int) Math.round(Math.sin(Math.toRadians(snapped + 90)));
         int rz =  (int) Math.round(Math.cos(Math.toRadians(snapped + 90)));
 
-        // Project delta onto forward/right axes
-        double fwd    = dx * fx + dz * fz;
-        double strafe = dx * rx + dz * rz;
+        int dx = 0, dz = 0;
+        if (zza >  0.1f) { dx += fx; dz += fz; }  // W
+        if (zza < -0.1f) { dx -= fx; dz -= fz; }  // S
+        if (xxa >  0.1f) { dx += rx; dz += rz; }  // D
+        if (xxa < -0.1f) { dx -= rx; dz -= rz; }  // A
 
-        int rdx = 0, rdz = 0;
-        if      (fwd    >  MOVE_THRESHOLD) { rdx += fx; rdz += fz; }
-        else if (fwd    < -MOVE_THRESHOLD) { rdx -= fx; rdz -= fz; }
-        if      (strafe >  MOVE_THRESHOLD) { rdx += rx; rdz += rz; }
-        else if (strafe < -MOVE_THRESHOLD) { rdx -= rx; rdz -= rz; }
-
-        return new int[]{Math.max(-1, Math.min(1, rdx)), Math.max(-1, Math.min(1, rdz))};
+        return new int[]{Math.max(-1, Math.min(1, dx)), Math.max(-1, Math.min(1, dz))};
     }
 
     // ── Q → rotate left — only in Direct Control ──────────────────────────────
