@@ -183,7 +183,7 @@ public class ShipMenuListener implements Listener {
                 byType.computeIfAbsent(id, k -> new ArrayList<>()).add(cannon);
             } catch (Exception ignored) {}
         }
-        int[] typeSlots = {12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25, 26};
+        int[] typeSlots = {13, 14, 15, 16, 17, 22, 23, 24, 25, 26};
         int si = 0;
         for (Map.Entry<String, List<Cannon>> entry : byType.entrySet()) {
             if (si >= typeSlots.length) break;
@@ -373,12 +373,20 @@ public class ShipMenuListener implements Listener {
     // ── Item builders ─────────────────────────────────────────────────────────
 
     private ItemStack cannonTypeItem(String designId, int total, int ready) {
-        Material mat = ready > 0 ? Material.TNT : Material.GRAY_STAINED_GLASS_PANE;
-        NamedTextColor nameColor = ready > 0 ? NamedTextColor.RED : NamedTextColor.DARK_GRAY;
-        ItemStack is = new ItemStack(mat);
-        ItemMeta m = is.getItemMeta();
-        m.displayName(Component.text(designId).color(nameColor)
-                .decoration(TextDecoration.ITALIC, false));
+        ItemStack is;
+        ItemMeta m;
+        if (ready > 0) {
+            is = new ItemStack(Material.TNT);
+            m = is.getItemMeta();
+            m.displayName(Component.text(designId).color(NamedTextColor.RED)
+                    .decoration(TextDecoration.ITALIC, false));
+        } else {
+            // BARRIER icon with 🧨 in name — visually merges both concepts
+            is = new ItemStack(Material.BARRIER);
+            m = is.getItemMeta();
+            m.displayName(Component.text("🧨 " + designId).color(NamedTextColor.DARK_GRAY)
+                    .decoration(TextDecoration.ITALIC, false));
+        }
         m.lore(List.of(
                 Component.text("Пушек: " + total + "  Готово: " + ready)
                         .color(ready > 0 ? NamedTextColor.YELLOW : NamedTextColor.GRAY)

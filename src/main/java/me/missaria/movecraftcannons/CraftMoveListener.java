@@ -3,16 +3,24 @@ package me.missaria.movecraftcannons;
 import at.pavlov.cannons.cannon.Cannon;
 import at.pavlov.cannons.cannon.CannonManager;
 import at.pavlov.cannons.cannon.data.CannonPosition;
+import net.countercraft.movecraft.craft.Craft;
+import net.countercraft.movecraft.events.CraftReleaseEvent;
+import net.countercraft.movecraft.events.CraftSinkEvent;
 import net.countercraft.movecraft.events.CraftTranslateEvent;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
 import net.countercraft.movecraft.MovecraftLocation;
+import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.util.Vector;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -99,6 +107,72 @@ public class CraftMoveListener implements Listener {
         if (plugin.isDebug() && updated > 0) {
             plugin.getLogger().info("[debug] Updated " + updated + " cannon(s) on craft translate.");
         }
+    }
+
+    // ── Water fill ────────────────────────────────────────────────────────────
+
+    // CraftTranslateEvent fires BEFORE blocks move. We collect vacated positions
+    // here, then restore water in the next tick (after Movecraft moves the blocks).
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCraftTranslateWater(CraftTranslateEvent event) {
+        HitBox oldBox = event.getOldHitBox();
+        HitBox newBox = event.getNewHitBox();
+        World world = event.getCraft().getWorld();
+
+        List<MovecraftLocation> vacated = new ArrayList<>();
+        for (MovecraftLocation loc : oldBox) {
+            if (!newBox.contains(loc)) vacated.add(loc);
+        }
+        if (vacated.isEmpty()) return;
+
+        Bukkit.getScheduler().runTask(plugin, () -> refillWaterAt(vacated, world));
+    }
+
+    // On release, fill any air holes left in the craft's last footprint.
+    // Scheduled 1 tick to run after Movecraft actually deregisters the craft.
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCraftRelease(CraftReleaseEvent event) {
+        Craft craft = event.getCraft();
+        List<MovecraftLocation> positions = snapshotHitbox(craft);
+        World world = craft.getWorld();
+        Bukkit.getScheduler().runTask(plugin, () -> refillWaterAt(positions, world));
+    }
+
+    // Sinking is a series of downward translates, but schedule a final cleanup
+    // after the sink settles (40 ticks ≈ 2 s) to catch any remaining gaps.
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onCraftSink(CraftSinkEvent event) {
+        Craft craft = event.getCraft();
+        List<MovecraftLocation> positions = snapshotHitbox(craft);
+        World world = craft.getWorld();
+        Bukkit.getScheduler().runTaskLater(plugin, () -> refillWaterAt(positions, world), 40L);
+    }
+
+    private List<MovecraftLocation> snapshotHitbox(Craft craft) {
+        List<MovecraftLocation> list = new ArrayList<>();
+        for (MovecraftLocation loc : craft.getHitBox()) list.add(loc);
+        return list;
+    }
+
+    private void refillWaterAt(List<MovecraftLocation> positions, World world) {
+        for (MovecraftLocation loc : positions) {
+            Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
+            if (!block.getType().isAir()) continue;
+            if (adjacentToWater(block)) block.setType(Material.WATER);
+        }
+    }
+
+    private boolean adjacentToWater(Block b) {
+        return isWater(b.getRelative( 1, 0,  0))
+            || isWater(b.getRelative(-1, 0,  0))
+            || isWater(b.getRelative( 0, 0,  1))
+            || isWater(b.getRelative( 0, 0, -1))
+            || isWater(b.getRelative( 0, 1,  0))
+            || isWater(b.getRelative( 0,-1,  0));
+    }
+
+    private boolean isWater(Block b) {
+        return b.getType() == Material.WATER;
     }
 
     /** Get all cannons from CannonManager's internal map (indexed by UUID). */
