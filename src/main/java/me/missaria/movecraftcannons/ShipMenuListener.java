@@ -266,9 +266,10 @@ public class ShipMenuListener implements Listener {
         double cx = (hitBox.getMinX() + hitBox.getMaxX()) / 2.0;
         double cy = (hitBox.getMinY() + hitBox.getMaxY()) / 2.0;
         double cz = (hitBox.getMinZ() + hitBox.getMaxZ()) / 2.0;
-        double dx = (hitBox.getMaxX() - hitBox.getMinX()) / 2.0 + 1;
-        double dy = (hitBox.getMaxY() - hitBox.getMinY()) / 2.0 + 1;
-        double dz = (hitBox.getMaxZ() - hitBox.getMinZ()) / 2.0 + 1;
+        // getCannonsInBox divides dx/dy/dz by 2 internally — pass full width + 2 margin
+        double dx = (hitBox.getMaxX() - hitBox.getMinX()) + 2;
+        double dy = (hitBox.getMaxY() - hitBox.getMinY()) + 2;
+        double dz = (hitBox.getMaxZ() - hitBox.getMinZ()) + 2;
         Location center = new Location(craft.getWorld(), cx, cy, cz);
         try {
             HashSet<Cannon> found = CannonManager.getCannonsInBox(center, dx, dy, dz);
