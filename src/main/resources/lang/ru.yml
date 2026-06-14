@@ -45,11 +45,13 @@ menu.cruise.inactive:   "§7Нажмите для круиза"
 # ── Cannon type buttons ───────────────────────────────────────────────────────
 menu.cannon.fire_lore:  "Нажмите — выстрелить"
 menu.cannon.stats:      "Пушек: {0}  Готово: {1}"
-cannon.cannon:          "Стандартная пушка"
-cannon.standard:        "Стандартная пушка"
-cannon.standart cannon: "Стандартная пушка"
-cannon.carronade:       "Карронада"
-cannon.mortar:          "Мортира"
+cannon.cannon:              "Стандартная пушка"
+cannon.standard:            "Стандартная пушка"
+cannon.standart:            "Стандартная пушка"
+cannon.standart cannon:     "Стандартная пушка"
+cannon.standart_cannon:     "Стандартная пушка"
+cannon.carronade:           "Карронада"
+cannon.mortar:              "Мортира"
 
 # ── Chat messages ─────────────────────────────────────────────────────────────
 msg.no_craft:           "Вы не управляете транспортом."

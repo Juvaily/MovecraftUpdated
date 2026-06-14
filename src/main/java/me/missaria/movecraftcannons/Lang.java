@@ -56,9 +56,12 @@ public class Lang {
         return Component.text(get(key, args)).color(color);
     }
 
-    private static String langOf(Player player) {
-        try { return player.getLocale().substring(0, 2).toLowerCase(); }
-        catch (Exception e) { return DEFAULT; }
+    static String langOf(Player player) {
+        try {
+            String locale = player.getLocale();
+            if (locale == null || locale.isBlank()) return DEFAULT;
+            return locale.substring(0, 2).toLowerCase();
+        } catch (Exception e) { return DEFAULT; }
     }
 
     private static String format(String val, Object[] args) {

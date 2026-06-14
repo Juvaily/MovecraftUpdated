@@ -90,6 +90,10 @@ public class ShipMenuListener implements Listener {
             player.sendMessage(Lang.msg("msg.no_craft", player, NamedTextColor.RED));
             return true;
         }
+        if (plugin.isDebug())
+            plugin.getLogger().info("[menu] player=" + player.getName()
+                    + " locale=" + player.getLocale()
+                    + " lang=" + Lang.langOf(player));
         openMenu(player, craft);
         return true;
     }
@@ -416,8 +420,15 @@ public class ShipMenuListener implements Listener {
     // ── Cannon name translations ──────────────────────────────────────────────
 
     private String cannonDisplayName(Player player, String designId) {
-        String val = Lang.get("cannon." + designId.toLowerCase(), player);
-        return (val != null && !val.startsWith("cannon.")) ? val : designId;
+        String lower = designId.toLowerCase();
+        // Try several key formats: exact, underscored, first-word-only
+        for (String candidate : new String[]{lower, lower.replace(' ', '_'), lower.split("\\s+")[0]}) {
+            String val = Lang.get("cannon." + candidate, player);
+            if (!val.startsWith("cannon.")) return val;
+        }
+        if (plugin.isDebug())
+            plugin.getLogger().info("[cannon] no translation for designId='" + designId + "'");
+        return designId;
     }
 
     // ── Cannon actions ────────────────────────────────────────────────────────
