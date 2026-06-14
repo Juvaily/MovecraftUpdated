@@ -38,12 +38,13 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
-import java.util.HashSet;
 
 public class ShipMenuListener implements Listener {
 
@@ -91,20 +92,22 @@ public class ShipMenuListener implements Listener {
     /*
      * Layout (27 slots = 3×9):
      *
-     *  [RotL] [  N  ] [RotR]  [ ] [Release] [Reload] [Fire] [ ] [ ]
-     *  [ W  ] [Stop ] [  E ]  [ ] [       ] [      ] [    ] [ ] [ ]
-     *  [  ↑ ] [  S  ] [  ↓ ]  [ ] [       ] [      ] [    ] [ ] [ ]
+     *  [RotL] [  N  ] [RotR]  [ ] [Release] [Reload] [FireAll] [  ] [  ]
+     *  [ W  ] [Stop ] [  E ]  [ ] [TypeA  ] [TypeB ] [TypeC  ] [TypeD] [TypeE]
+     *  [  ↑ ] [  S  ] [  ↓ ]  [ ] [TypeF  ] [TypeG ] [TypeH  ] [TypeI] [TypeJ]
      *
-     * Slots 0-2:  Rotate-L / Cruise-N / Rotate-R
-     * Slot  4:    Release
-     * Slot  5:    Reload all cannons from chests
-     * Slot  6:    Fire all cannons
-     * Slot  9:    Cruise-W
-     * Slot  10:   Cruise Stop
-     * Slot  11:   Cruise-E
-     * Slot  18:   Cruise Up
-     * Slot  19:   Cruise S
-     * Slot  20:   Cruise Down
+     * Slots 0-2:   Rotate-L / Cruise-N / Rotate-R
+     * Slot  4:     Release
+     * Slot  5:     Reload all cannons from chests
+     * Slot  6:     Fire all cannons
+     * Slots 12-17: Cannon type buttons (row 1, right side) — up to 5 types
+     * Slot  9:     Cruise-W
+     * Slot  10:    Cruise Stop
+     * Slot  11:    Cruise-E
+     * Slots 21-26: Cannon type buttons (row 2, right side) — types 6-10
+     * Slot  18:    Cruise Up
+     * Slot  19:    Cruise S
+     * Slot  20:    Cruise Down
      */
     @SuppressWarnings("unchecked")
     private void openMenu(Player player, PlayerCraft craft) {
@@ -170,6 +173,28 @@ public class ShipMenuListener implements Listener {
 
         setSlot(inv, actions, 19, relCruiseItem(craft, bwd, curDir, "Назад"),
                 p -> setCruise(p, craft, bwd));
+
+        // Cannon type buttons: group by designID, fill slots 12-17 then 21-26
+        List<Cannon> allCannons = findCannonsOnCraft(craft);
+        Map<String, List<Cannon>> byType = new LinkedHashMap<>();
+        for (Cannon cannon : allCannons) {
+            try {
+                String id = cannon.getCannonDesign().getDesignID();
+                byType.computeIfAbsent(id, k -> new ArrayList<>()).add(cannon);
+            } catch (Exception ignored) {}
+        }
+        int[] typeSlots = {12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25, 26};
+        int si = 0;
+        for (Map.Entry<String, List<Cannon>> entry : byType.entrySet()) {
+            if (si >= typeSlots.length) break;
+            String designId = entry.getKey();
+            List<Cannon> group = new ArrayList<>(entry.getValue());
+            long ready = group.stream().filter(Cannon::isReadyToFire).count();
+            setSlot(inv, actions, typeSlots[si],
+                    cannonTypeItem(designId, group.size(), (int) ready),
+                    p -> fireCannonGroup(p, group));
+            si++;
+        }
 
         menuActions.put(player.getUniqueId(), actions);
         player.openInventory(inv);
@@ -294,6 +319,26 @@ public class ShipMenuListener implements Listener {
                 .color(NamedTextColor.GREEN));
     }
 
+    private void fireCannonGroup(Player player, List<Cannon> group) {
+        Cannons cannonsPlugin = (Cannons) Bukkit.getPluginManager().getPlugin("Cannons");
+        if (cannonsPlugin == null) return;
+        CannonsAPI api = cannonsPlugin.getCannonsAPI();
+        int fired = 0;
+        for (Cannon cannon : group) {
+            if (!cannon.isReadyToFire()) continue;
+            api.playerFiring(cannon, player, InteractAction.fireOther);
+            fired++;
+        }
+        String name = group.isEmpty() ? "?" : group.get(0).getCannonDesign().getDesignID();
+        if (fired > 0) {
+            player.sendMessage(Component.text("Выстрелено из " + fired + " пушек «" + name + "»!")
+                    .color(NamedTextColor.GREEN));
+        } else {
+            player.sendMessage(Component.text("Пушки «" + name + "» не готовы к стрельбе.")
+                    .color(NamedTextColor.YELLOW));
+        }
+    }
+
     private void fireAllCannons(Player player, PlayerCraft craft) {
         List<Cannon> cannons = findCannonsOnCraft(craft);
         if (cannons.isEmpty()) {
@@ -326,6 +371,25 @@ public class ShipMenuListener implements Listener {
     }
 
     // ── Item builders ─────────────────────────────────────────────────────────
+
+    private ItemStack cannonTypeItem(String designId, int total, int ready) {
+        Material mat = ready > 0 ? Material.TNT : Material.GRAY_STAINED_GLASS_PANE;
+        NamedTextColor nameColor = ready > 0 ? NamedTextColor.RED : NamedTextColor.DARK_GRAY;
+        ItemStack is = new ItemStack(mat);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text(designId).color(nameColor)
+                .decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(
+                Component.text("Пушек: " + total + "  Готово: " + ready)
+                        .color(ready > 0 ? NamedTextColor.YELLOW : NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false),
+                Component.text("Нажмите — выстрелить")
+                        .color(NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false)
+        ));
+        is.setItemMeta(m);
+        return is;
+    }
 
     private ItemStack disabledItem(String label) {
         ItemStack is = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
