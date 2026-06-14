@@ -354,7 +354,7 @@ public class ShipMenuListener implements Listener {
 
     private void doFire(CannonsAPI api, Player player, List<Cannon> ready) {
         for (Cannon cannon : ready) {
-            api.playerFiring(cannon, player, InteractAction.fireRightClickTrigger);
+            api.playerFiring(cannon, player, InteractAction.fireRightClickTigger);
         }
     }
 
