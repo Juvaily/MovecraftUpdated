@@ -17,15 +17,16 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         saveDefaultConfig();
         debug = getConfig().getBoolean("debug", false);
 
+        Lang.load(this);
+
         getServer().getPluginManager().registerEvents(new CraftMoveListener(this), this);
         getServer().getPluginManager().registerEvents(new HealthBarListener(this), this);
         getServer().getPluginManager().registerEvents(new WasdListener(this), this);
+        getServer().getPluginManager().registerEvents(new CommandBlockListener(), this);
         shipMenu = new ShipMenuListener(this);
         getServer().getPluginManager().registerEvents(shipMenu, this);
 
         getLogger().info("MovecraftCannons enabled.");
-        getLogger().info("  Cannon translation fix: setOffset() instead of missing move().");
-        getLogger().info("  Health bar: TextDisplay entity above craft, follows movement.");
         if (debug) getLogger().info("  Debug mode ON.");
     }
 
@@ -33,7 +34,7 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (command.getName().equalsIgnoreCase("shipmenu")) {
             if (!(sender instanceof Player player)) {
-                sender.sendMessage("Только для игроков.");
+                sender.sendMessage(Lang.get("msg.only_players"));
                 return true;
             }
             return shipMenu.onCommand(player);

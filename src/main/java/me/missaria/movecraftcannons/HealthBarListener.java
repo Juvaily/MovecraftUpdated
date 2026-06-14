@@ -114,7 +114,7 @@ public class HealthBarListener implements Listener {
         UUID uid = event.getCraft().getUUID();
         TextDisplay disp = displays.get(uid);
         if (disp != null) {
-            disp.text(Component.text("☠ Тонет!", NamedTextColor.RED)
+            disp.text(Component.text(Lang.get("health.sinking"), NamedTextColor.RED)
                     .decoration(TextDecoration.BOLD, true));
         }
         Bukkit.getScheduler().runTaskLater(plugin, () -> remove(uid), 100L);
@@ -328,7 +328,7 @@ public class HealthBarListener implements Listener {
         // Fire indicator
         if (sc[1] == 1) {
             text.appendNewline()
-                .append(Component.text("🔥 Горит!")
+                .append(Component.text(Lang.get("health.fire"))
                         .color(NamedTextColor.RED)
                         .decoration(TextDecoration.BOLD, true));
         }

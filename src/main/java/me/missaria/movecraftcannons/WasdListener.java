@@ -7,8 +7,6 @@ import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.events.CraftTranslateEvent;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -45,8 +43,7 @@ public class WasdListener implements Listener {
     private final Map<UUID, Float>    savedWalkSpeed   = new ConcurrentHashMap<>();
     private final Map<UUID, Float>    savedFlySpeed    = new ConcurrentHashMap<>();
 
-    // DC extras: pre-DC position and scoreboard
-    private final Map<UUID, Location>   savedDcPosition = new ConcurrentHashMap<>();
+    // DC extras: scoreboard
     private final Map<UUID, Scoreboard> dcScoreboards   = new ConcurrentHashMap<>();
 
     private static final long  ROTATE_DEBOUNCE = 600L;
@@ -83,10 +80,6 @@ public class WasdListener implements Listener {
                 player.setWalkSpeed(PILOT_SPEED);
                 player.setFlySpeed(PILOT_SPEED);
 
-                // Save position, teleport above ship
-                savedDcPosition.put(uid, player.getLocation().clone());
-                player.teleport(aboveShip(craft, player.getLocation().getYaw(), player.getLocation().getPitch()));
-
                 // Invulnerable + invisible to others
                 player.setInvulnerable(true);
                 player.addPotionEffect(new PotionEffect(
@@ -97,7 +90,7 @@ public class WasdListener implements Listener {
 
                 // Scoreboard sidebar
                 String shipName = craftName(craft);
-                Scoreboard sb = buildDcScoreboard(shipName);
+                Scoreboard sb = buildDcScoreboard(player, shipName);
                 dcScoreboards.put(uid, sb);
                 player.setScoreboard(sb);
 
@@ -135,12 +128,6 @@ public class WasdListener implements Listener {
         dcScoreboards.remove(uid);
         try { player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard()); }
         catch (Exception ignored) {}
-
-        Location savedPos = savedDcPosition.remove(uid);
-        if (savedPos != null) {
-            player.sendMessage(Component.text("Возврат на исходную позицию.").color(NamedTextColor.GRAY));
-            player.teleport(savedPos);
-        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -163,7 +150,7 @@ public class WasdListener implements Listener {
     public void onCraftTranslateDC(CraftTranslateEvent event) {
         if (!(event.getCraft() instanceof net.countercraft.movecraft.craft.PilotedCraft pc)) return;
         Player pilot = pc.getPilot();
-        if (pilot == null || !savedDcPosition.containsKey(pilot.getUniqueId())) return;
+        if (pilot == null || !savedAllowFlight.containsKey(pilot.getUniqueId())) return;
 
         HitBox oldBox = event.getOldHitBox();
         HitBox newBox = event.getNewHitBox();
@@ -305,17 +292,6 @@ public class WasdListener implements Listener {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private Location aboveShip(PlayerCraft craft, float yaw, float pitch) {
-        HitBox hb = craft.getHitBox();
-        double cx = (hb.getMinX() + hb.getMaxX()) / 2.0 + 0.5;
-        double cy = hb.getMaxY() + 1;
-        double cz = (hb.getMinZ() + hb.getMaxZ()) / 2.0 + 0.5;
-        Location loc = new Location(craft.getWorld(), cx, cy, cz);
-        loc.setYaw(yaw);
-        loc.setPitch(0f);
-        return loc;
-    }
-
     private String craftName(PlayerCraft craft) {
         try {
             String n = craft.getType().getStringProperty(
@@ -326,23 +302,22 @@ public class WasdListener implements Listener {
     }
 
     @SuppressWarnings("deprecation")
-    private Scoreboard buildDcScoreboard(String shipName) {
+    private Scoreboard buildDcScoreboard(Player player, String shipName) {
         Scoreboard sb = Bukkit.getScoreboardManager().getNewScoreboard();
         Objective obj = sb.registerNewObjective("dc", "dummy",
-                Component.text("⚓ Direct Control")
+                Component.text(Lang.get("dc.title", player))
                         .color(NamedTextColor.DARK_AQUA)
                         .decoration(TextDecoration.BOLD, true));
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
-        // Entries are shown highest score at top; use unique strings via color codes.
         String[] lines = {
             "§e" + shipName,
-            "§8─────────────────",
-            "§7WASD§8: движение",
-            "§7Q §8: ←   §7F §8: →",
-            "§7Книга§8: открыть меню",
-            "§8═════════════════",
-            "§7Leave§8: выйти",
+            Lang.get("dc.sep1", player),
+            Lang.get("dc.wasd", player),
+            Lang.get("dc.rotate", player),
+            Lang.get("dc.menu", player),
+            Lang.get("dc.sep2", player),
+            Lang.get("dc.leave", player),
         };
         for (int i = 0; i < lines.length; i++) {
             obj.getScore(lines[i]).setScore(lines.length - i);

@@ -87,8 +87,7 @@ public class ShipMenuListener implements Listener {
     public boolean onCommand(Player player) {
         PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
         if (craft == null) {
-            player.sendMessage(Component.text("Вы не управляете транспортом.")
-                    .color(NamedTextColor.RED));
+            player.sendMessage(Lang.msg("msg.no_craft", player, NamedTextColor.RED));
             return true;
         }
         openMenu(player, craft);
@@ -128,39 +127,44 @@ public class ShipMenuListener implements Listener {
         Consumer<Player>[] actions = new Consumer[27];
         CruiseDirection curDir = craft.getCruising() ? craft.getCruiseDirection() : CruiseDirection.NONE;
 
-        // Directions relative to the ship's hull (bow/stern/port/starboard)
-        BlockFace shipFwd  = getShipForward(craft);
-        BlockFace shipBwd  = shipFwd.getOppositeFace();
-        BlockFace shipPort = rotateLeft(shipFwd);
-        BlockFace shipStbd = rotateRight(shipFwd);
-        CruiseDirection fwd = faceToCruiseDir(shipFwd);
-        CruiseDirection bwd = faceToCruiseDir(shipBwd);
-        CruiseDirection lft = faceToCruiseDir(shipPort);
-        CruiseDirection rgt = faceToCruiseDir(shipStbd);
+        // Directions relative to player yaw
+        CruiseDirection[] rel = relDirs(player.getLocation().getYaw());
+        CruiseDirection fwd = rel[0], bwd = rel[1], lft = rel[2], rgt = rel[3];
 
-        // Row 0: RotL / Forward / RotR  |  _ / Release / _
+        // Row 0: RotL / Forward / RotR  |  _ / Release / Reload / FireAll / Repair / Blueprint
         setSlot(inv, actions, 0,
-                item(Material.SPECTRAL_ARROW, "§e↺ Поворот влево",  "Повернуть против часовой стрелки"),
+                item(Material.SPECTRAL_ARROW,
+                        Lang.get("menu.rotate_left.name", player),
+                        Lang.get("menu.rotate_left.lore", player)),
                 p -> rotateCraft(p, craft, MovecraftRotation.ANTICLOCKWISE));
 
-        setSlot(inv, actions, 1, relCruiseItem(craft, fwd, curDir, "Нос"),
+        setSlot(inv, actions, 1,
+                relCruiseItem(player, craft, fwd, curDir, Lang.get("menu.nav.bow", player)),
                 p -> setCruise(p, craft, fwd));
 
         setSlot(inv, actions, 2,
-                item(Material.SPECTRAL_ARROW, "§e↻ Поворот вправо", "Повернуть по часовой стрелке"),
+                item(Material.SPECTRAL_ARROW,
+                        Lang.get("menu.rotate_right.name", player),
+                        Lang.get("menu.rotate_right.lore", player)),
                 p -> rotateCraft(p, craft, MovecraftRotation.CLOCKWISE));
 
         Block releaseSign = findSign(craft, "Release");
         setSlot(inv, actions, 4,
-                item(Material.RED_BED, "§4Покинуть судно", "Остановить круиз и покинуть транспорт"),
+                item(Material.RED_BED,
+                        Lang.get("menu.leave.name", player),
+                        Lang.get("menu.leave.lore", player)),
                 p -> doRelease(p, craft, releaseSign));
 
         setSlot(inv, actions, 5,
-                item(Material.GUNPOWDER, "§eЗарядить пушки", "Зарядить все пушки корабля из сундуков"),
+                item(Material.GUNPOWDER,
+                        Lang.get("menu.reload.name", player),
+                        Lang.get("menu.reload.lore", player)),
                 p -> loadAllCannons(p, craft));
 
         setSlot(inv, actions, 6,
-                item(Material.FIRE_CHARGE, "§cОгонь!", "Выстрелить из всех готовых пушек"),
+                item(Material.FIRE_CHARGE,
+                        Lang.get("menu.fire_all.name", player),
+                        Lang.get("menu.fire_all.lore", player)),
                 p -> fireAllCannons(p, craft));
 
         // Repair / Cancel-repair button
@@ -168,47 +172,59 @@ public class ShipMenuListener implements Listener {
         boolean hasBlueprint = blueprintFile(player).exists();
         if (repairing) {
             setSlot(inv, actions, 7,
-                    item(Material.BARRIER, "§cОтменить ремонт", "Прервать текущий процесс ремонта"),
+                    item(Material.BARRIER,
+                            Lang.get("menu.cancel_repair.name", player),
+                            Lang.get("menu.cancel_repair.lore", player)),
                     p -> cancelRepair(p));
         } else if (hasBlueprint) {
             setSlot(inv, actions, 7,
-                    item(Material.ANVIL, "§aРемонт", "Восстановить повреждённые блоки из сундуков"),
+                    item(Material.ANVIL,
+                            Lang.get("menu.repair.name", player),
+                            Lang.get("menu.repair.lore", player)),
                     p -> repairFromBlueprint(p, craft));
         } else {
-            setSlot(inv, actions, 7, disabledItem("Нет чертежа — сначала сохраните"), null);
+            setSlot(inv, actions, 7, disabledItem(player, Lang.get("menu.no_blueprint_btn", player)), null);
         }
 
         setSlot(inv, actions, 8,
-                item(Material.WRITABLE_BOOK, "§eСохранить чертёж", "Запомнить текущее состояние корабля"),
+                item(Material.WRITABLE_BOOK,
+                        Lang.get("menu.blueprint.name", player),
+                        Lang.get("menu.blueprint.lore", player)),
                 p -> saveBlueprint(p, craft));
 
         // Row 1: Left / Stop / Right
-        setSlot(inv, actions, 9,  relCruiseItem(craft, lft, curDir, "Левый"),
+        setSlot(inv, actions, 9,
+                relCruiseItem(player, craft, lft, curDir, Lang.get("menu.nav.left", player)),
                 p -> setCruise(p, craft, lft));
         setSlot(inv, actions, 10,
-                item(Material.BARRIER, "§cОстановить круиз", "Отключить круиз"),
+                item(Material.BARRIER,
+                        Lang.get("menu.stop.name", player),
+                        Lang.get("menu.stop.lore", player)),
                 p -> stopCruise(craft));
-        setSlot(inv, actions, 11, relCruiseItem(craft, rgt, curDir, "Правый"),
+        setSlot(inv, actions, 11,
+                relCruiseItem(player, craft, rgt, curDir, Lang.get("menu.nav.right", player)),
                 p -> setCruise(p, craft, rgt));
 
         // Row 2: Up / Backward / Down
         boolean canVertical = allowsVertical(craft);
         if (canVertical) {
-            setSlot(inv, actions, 18, relCruiseItem(craft, CruiseDirection.UP,   curDir, "Вверх"),
+            setSlot(inv, actions, 18,
+                    relCruiseItem(player, craft, CruiseDirection.UP, curDir, Lang.get("menu.nav.up", player)),
                     p -> setCruise(p, craft, CruiseDirection.UP));
-            setSlot(inv, actions, 20, relCruiseItem(craft, CruiseDirection.DOWN, curDir, "Вниз"),
+            setSlot(inv, actions, 20,
+                    relCruiseItem(player, craft, CruiseDirection.DOWN, curDir, Lang.get("menu.nav.down", player)),
                     p -> setCruise(p, craft, CruiseDirection.DOWN));
         } else {
-            setSlot(inv, actions, 18, disabledItem("Вверх недоступно"), null);
-            setSlot(inv, actions, 20, disabledItem("Вниз недоступно"),  null);
+            setSlot(inv, actions, 18, disabledItem(player, Lang.get("menu.nav.up_disabled", player)), null);
+            setSlot(inv, actions, 20, disabledItem(player, Lang.get("menu.nav.down_disabled", player)), null);
         }
-        setSlot(inv, actions, 19, relCruiseItem(craft, bwd, curDir, "Корма"),
+        setSlot(inv, actions, 19,
+                relCruiseItem(player, craft, bwd, curDir, Lang.get("menu.nav.stern", player)),
                 p -> setCruise(p, craft, bwd));
 
-        // Cannon data: types + broadside groupings
+        // Cannon data: types + broadside groupings (player-yaw relative)
         List<Cannon> allCannons = findCannonsOnCraft(craft);
 
-        // Directional cannon groups
         BlockFace portFace = cruiseDirToFace(lft);
         BlockFace stbdFace = cruiseDirToFace(rgt);
         BlockFace fwdFace  = cruiseDirToFace(fwd);
@@ -222,17 +238,21 @@ public class ShipMenuListener implements Listener {
         List<Cannon> bwdCannons = allCannons.stream()
                 .filter(c -> bwdFace != null && bwdFace == safeGetDir(c)).toList();
 
-        // Row 2, cols 4-7: Bow / Stern / Starboard / Port
-        setSlot(inv, actions, 22, broadsideItem("§e↑ Носовые", fwdCannons),
+        // Row 2, cols 4-7: Forward / Backward / Right / Left
+        setSlot(inv, actions, 22,
+                broadsideItem(player, Lang.get("menu.bow_guns.name", player), fwdCannons),
                 fwdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, fwdCannons));
-        setSlot(inv, actions, 23, broadsideItem("§6↓ Кормовые", bwdCannons),
+        setSlot(inv, actions, 23,
+                broadsideItem(player, Lang.get("menu.stern_guns.name", player), bwdCannons),
                 bwdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, bwdCannons));
-        setSlot(inv, actions, 24, broadsideItem("§a→ Правый борт", stbdCannons),
+        setSlot(inv, actions, 24,
+                broadsideItem(player, Lang.get("menu.starboard.name", player), stbdCannons),
                 stbdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, stbdCannons));
-        setSlot(inv, actions, 25, broadsideItem("§c← Левый борт", portCannons),
+        setSlot(inv, actions, 25,
+                broadsideItem(player, Lang.get("menu.port.name", player), portCannons),
                 portCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, portCannons));
 
-        // Cannon type buttons: group by designID, fill slots 13-17 (row 1)
+        // Cannon type buttons: group by designID, slots 13-17 (row 1)
         Map<String, List<Cannon>> byType = new LinkedHashMap<>();
         for (Cannon cannon : allCannons) {
             try {
@@ -247,7 +267,7 @@ public class ShipMenuListener implements Listener {
             List<Cannon> group = new ArrayList<>(entry.getValue());
             long ready = group.stream().filter(Cannon::isReadyToFire).count();
             setSlot(inv, actions, typeSlots[si],
-                    cannonTypeItem(entry.getKey(), group.size(), (int) ready),
+                    cannonTypeItem(player, entry.getKey(), group.size(), (int) ready),
                     p -> fireCannonGroup(p, craft, group));
             si++;
         }
@@ -395,17 +415,9 @@ public class ShipMenuListener implements Listener {
 
     // ── Cannon name translations ──────────────────────────────────────────────
 
-    private static final Map<String, String> CANNON_NAMES = new java.util.HashMap<>();
-    static {
-        CANNON_NAMES.put("cannon",    "Стандарт");
-        CANNON_NAMES.put("standard",  "Стандарт");
-        CANNON_NAMES.put("carronade", "Карронада");
-        CANNON_NAMES.put("mortar",    "Мортира");
-    }
-
-    private String cannonDisplayName(String designId) {
-        String ru = CANNON_NAMES.get(designId.toLowerCase());
-        return ru != null ? ru : designId;
+    private String cannonDisplayName(Player player, String designId) {
+        String val = Lang.get("cannon." + designId.toLowerCase(), player);
+        return (val != null && !val.startsWith("cannon.")) ? val : designId;
     }
 
     // ── Cannon actions ────────────────────────────────────────────────────────
@@ -463,15 +475,11 @@ public class ShipMenuListener implements Listener {
 
         int canFire = Math.min(shots, have / amountPer);
         if (canFire <= 0) {
-            player.sendMessage(Component.text(
-                    "В сундуках нет боеприпасов (" + matName + " × " + amountPer + "/выстрел).")
-                    .color(NamedTextColor.RED));
+            player.sendMessage(Lang.msg("msg.no_ammo", player, NamedTextColor.RED, matName, amountPer));
             return 0;
         }
         if (canFire < shots) {
-            player.sendMessage(Component.text(
-                    "Боеприпасов хватит на " + canFire + " из " + shots + " пушек.")
-                    .color(NamedTextColor.YELLOW));
+            player.sendMessage(Lang.msg("msg.low_ammo", player, NamedTextColor.YELLOW, canFire, shots));
         }
         // Remove from chests in order
         int toRemove = canFire * amountPer;
@@ -492,57 +500,51 @@ public class ShipMenuListener implements Listener {
     private void loadAllCannons(Player player, PlayerCraft craft) {
         List<Cannon> cannons = findCannonsOnCraft(craft);
         if (cannons.isEmpty()) {
-            player.sendMessage(Component.text("На этом судне нет пушек.").color(NamedTextColor.YELLOW));
+            player.sendMessage(Lang.msg("msg.no_cannons", player, NamedTextColor.YELLOW));
             return;
         }
-        long beforeReady = cannons.stream().filter(Cannon::isReadyToFire).count();
         for (Cannon cannon : cannons) cannon.reloadFromChests(player.getUniqueId(), true);
         long afterReady = cannons.stream().filter(Cannon::isReadyToFire).count();
-        long newlyLoaded = Math.max(0, afterReady - beforeReady);
-
-        player.sendMessage(Component.text(
-                "Перезаряжено " + afterReady + "/" + cannons.size() + " пушек.")
-                .color(afterReady > 0 ? NamedTextColor.GREEN : NamedTextColor.RED));
+        player.sendMessage(Lang.msg("msg.reloaded", player,
+                afterReady > 0 ? NamedTextColor.GREEN : NamedTextColor.RED,
+                afterReady, cannons.size()));
     }
 
     private void fireCannonGroup(Player player, PlayerCraft craft, List<Cannon> group) {
         CannonsAPI api = getCannonsAPI();
         if (api == null) return;
-        String label = group.isEmpty() ? "?" : cannonDisplayName(group.get(0).getCannonDesign().getDesignID());
+        String label = group.isEmpty() ? "?" : cannonDisplayName(player, group.get(0).getCannonDesign().getDesignID());
         List<Cannon> ready = group.stream().filter(Cannon::isReadyToFire).toList();
         if (ready.isEmpty()) {
-            player.sendMessage(Component.text("Пушки «" + label + "» не готовы.").color(NamedTextColor.YELLOW));
+            player.sendMessage(Lang.msg("msg.group_not_ready", player, NamedTextColor.YELLOW, label));
             return;
         }
         int canFire = consumeAmmoFromChests(player, craft, ready.size());
         if (canFire <= 0) return;
         doFire(api, player, ready.subList(0, canFire));
-        player.sendMessage(Component.text("Выстрелено из " + canFire + " пушек «" + label + "»!").color(NamedTextColor.GREEN));
+        player.sendMessage(Lang.msg("msg.fired_group", player, NamedTextColor.GREEN, canFire, label));
     }
 
     private void fireAllCannons(Player player, PlayerCraft craft) {
         CannonsAPI api = getCannonsAPI();
         if (api == null) {
-            player.sendMessage(Component.text("Плагин Cannons недоступен.").color(NamedTextColor.RED));
+            player.sendMessage(Lang.msg("msg.cannons_unavailable", player, NamedTextColor.RED));
             return;
         }
         List<Cannon> all = findCannonsOnCraft(craft);
         if (all.isEmpty()) {
-            player.sendMessage(Component.text("На этом судне нет пушек.").color(NamedTextColor.YELLOW));
+            player.sendMessage(Lang.msg("msg.no_cannons", player, NamedTextColor.YELLOW));
             return;
         }
         List<Cannon> ready = all.stream().filter(Cannon::isReadyToFire).toList();
-        int notReady = all.size() - ready.size();
         if (ready.isEmpty()) {
-            player.sendMessage(Component.text("Нет готовых к стрельбе пушек.").color(NamedTextColor.YELLOW));
+            player.sendMessage(Lang.msg("msg.no_ready", player, NamedTextColor.YELLOW));
             return;
         }
         int canFire = consumeAmmoFromChests(player, craft, ready.size());
         if (canFire <= 0) return;
         doFire(api, player, ready.subList(0, canFire));
-        player.sendMessage(Component.text("Выстрелено из " + canFire + " пушек!").color(NamedTextColor.GREEN));
-        if (notReady > 0)
-            player.sendMessage(Component.text(notReady + " пушек не готовы.").color(NamedTextColor.YELLOW));
+        player.sendMessage(Lang.msg("msg.fired_all", player, NamedTextColor.GREEN, canFire));
     }
 
     // ── Blueprint repair ──────────────────────────────────────────────────────
@@ -569,11 +571,9 @@ public class ShipMenuListener implements Listener {
             File f = blueprintFile(player);
             f.getParentFile().mkdirs();
             yaml.save(f);
-            player.sendMessage(Component.text("Чертёж сохранён: " + count + " блоков.")
-                    .color(NamedTextColor.GREEN));
+            player.sendMessage(Lang.msg("msg.blueprint_saved", player, NamedTextColor.GREEN, count));
         } catch (IOException e) {
-            player.sendMessage(Component.text("Ошибка сохранения: " + e.getMessage())
-                    .color(NamedTextColor.RED));
+            player.sendMessage(Lang.msg("msg.blueprint_error", player, NamedTextColor.RED, e.getMessage()));
         }
     }
 
@@ -583,8 +583,7 @@ public class ShipMenuListener implements Listener {
 
         File f = blueprintFile(player);
         if (!f.exists()) {
-            player.sendMessage(Component.text("Чертёж не найден. Сохраните его кнопкой «Сохранить чертёж».")
-                    .color(NamedTextColor.RED));
+            player.sendMessage(Lang.msg("msg.no_blueprint", player, NamedTextColor.RED));
             return;
         }
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(f);
@@ -606,15 +605,14 @@ public class ShipMenuListener implements Listener {
             if (block.getType() != expected) jobs.add(new Job(block, expected));
         }
         if (jobs.isEmpty()) {
-            player.sendMessage(Component.text("Корабль не повреждён.").color(NamedTextColor.AQUA));
+            player.sendMessage(Lang.msg("msg.ship_intact", player, NamedTextColor.AQUA));
             return;
         }
 
         int blocksPerTick = plugin.getConfig().getInt("repair.blocks_per_tick", 1);
         int tickDelay     = plugin.getConfig().getInt("repair.tick_delay", 5);
         int total         = jobs.size();
-        player.sendMessage(Component.text("Ремонт: " + total + " блоков...")
-                .color(NamedTextColor.GREEN));
+        player.sendMessage(Lang.msg("msg.repair_start", player, NamedTextColor.GREEN, total));
 
         // Find pilot sign now (before craft potentially changes)
         Block pilotSign = findCraftSign(craft);
@@ -639,8 +637,7 @@ public class ShipMenuListener implements Listener {
                     }
                 }
                 idx = end;
-                player.sendActionBar(Component.text("⚒ Ремонт: " + idx + "/" + total)
-                        .color(NamedTextColor.GREEN));
+                player.sendActionBar(Lang.msg("msg.repair_progress", player, NamedTextColor.GREEN, idx, total));
 
                 if (idx < total) return;
 
@@ -650,9 +647,9 @@ public class ShipMenuListener implements Listener {
                 player.sendActionBar(Component.empty());
 
                 if (repaired > 0)
-                    player.sendMessage(Component.text("Отремонтировано " + repaired + " блоков.").color(NamedTextColor.GREEN));
+                    player.sendMessage(Lang.msg("msg.repair_done", player, NamedTextColor.GREEN, repaired));
                 if (missing > 0)
-                    player.sendMessage(Component.text("Не хватило материалов для " + missing + " блоков.").color(NamedTextColor.YELLOW));
+                    player.sendMessage(Lang.msg("msg.repair_missing", player, NamedTextColor.YELLOW, missing));
 
                 // Release and re-detect so new blocks join the craft
                 net.countercraft.movecraft.events.CraftReleaseEvent re =
@@ -666,8 +663,7 @@ public class ShipMenuListener implements Listener {
                         simulateClick(player, pilotSignLoc.getBlock());
                     }, 2L);
                 } else {
-                    player.sendMessage(Component.text("Переоснастьте транспорт чтобы новые блоки стали частью корабля.")
-                            .color(NamedTextColor.YELLOW));
+                    player.sendMessage(Lang.msg("msg.refit", player, NamedTextColor.YELLOW));
                 }
             }
         };
@@ -680,7 +676,7 @@ public class ShipMenuListener implements Listener {
         if (t != null) {
             t.cancel();
             player.sendActionBar(Component.empty());
-            player.sendMessage(Component.text("Ремонт отменён.").color(NamedTextColor.YELLOW));
+            player.sendMessage(Lang.msg("msg.repair_cancelled", player, NamedTextColor.YELLOW));
         }
     }
 
@@ -713,55 +709,6 @@ public class ShipMenuListener implements Listener {
         return left == 0;
     }
 
-    // ── Ship orientation ──────────────────────────────────────────────────────
-
-    private BlockFace getShipForward(PlayerCraft craft) {
-        try {
-            CruiseDirection cd = craft.getCruiseDirection();
-            if (cd != null && cd != CruiseDirection.NONE
-                    && cd != CruiseDirection.UP && cd != CruiseDirection.DOWN) {
-                BlockFace f = cruiseDirToFace(cd);
-                if (f != null) return f;
-            }
-        } catch (Exception ignored) {}
-        Block sign = findCraftSign(craft);
-        if (sign != null) {
-            BlockFace sf = getSignFace(sign);
-            if (sf != BlockFace.UP && sf != BlockFace.DOWN && sf != BlockFace.SELF) return sf;
-        }
-        return BlockFace.SOUTH;
-    }
-
-    private BlockFace rotateLeft(BlockFace face) {
-        return switch (face) {
-            case NORTH -> BlockFace.WEST;
-            case WEST  -> BlockFace.SOUTH;
-            case SOUTH -> BlockFace.EAST;
-            case EAST  -> BlockFace.NORTH;
-            default    -> face;
-        };
-    }
-
-    private BlockFace rotateRight(BlockFace face) {
-        return switch (face) {
-            case NORTH -> BlockFace.EAST;
-            case EAST  -> BlockFace.SOUTH;
-            case SOUTH -> BlockFace.WEST;
-            case WEST  -> BlockFace.NORTH;
-            default    -> face;
-        };
-    }
-
-    private CruiseDirection faceToCruiseDir(BlockFace face) {
-        return switch (face) {
-            case NORTH -> CruiseDirection.NORTH;
-            case SOUTH -> CruiseDirection.SOUTH;
-            case EAST  -> CruiseDirection.EAST;
-            case WEST  -> CruiseDirection.WEST;
-            default    -> CruiseDirection.NONE;
-        };
-    }
-
     // ── Broadside helpers ─────────────────────────────────────────────────────
 
     private BlockFace cruiseDirToFace(CruiseDirection dir) {
@@ -779,18 +726,18 @@ public class ShipMenuListener implements Listener {
         catch (Exception e) { return null; }
     }
 
-    private ItemStack broadsideItem(String coloredLabel, List<Cannon> cannons) {
-        if (cannons.isEmpty()) return disabledItem(coloredLabel.replaceAll("§.", ""));
+    private ItemStack broadsideItem(Player player, String coloredLabel, List<Cannon> cannons) {
+        if (cannons.isEmpty()) return disabledItem(player, coloredLabel.replaceAll("§.", ""));
         long ready = cannons.stream().filter(Cannon::isReadyToFire).count();
         return item(Material.TNT, coloredLabel,
-                "Пушек: " + cannons.size() + "  Готово: " + ready + "/" + cannons.size(),
-                "Нажмите — залп этим бортом");
+                Lang.get("menu.broadside.stats", player, cannons.size(), ready, cannons.size()),
+                Lang.get("menu.broadside.fire", player));
     }
 
     // ── Item builders ─────────────────────────────────────────────────────────
 
-    private ItemStack cannonTypeItem(String designId, int total, int ready) {
-        String label = cannonDisplayName(designId);
+    private ItemStack cannonTypeItem(Player player, String designId, int total, int ready) {
+        String label = cannonDisplayName(player, designId);
         ItemStack is;
         ItemMeta m;
         if (ready > 0) {
@@ -805,10 +752,10 @@ public class ShipMenuListener implements Listener {
                     .decoration(TextDecoration.ITALIC, false));
         }
         m.lore(List.of(
-                Component.text("Пушек: " + total + "  Готово: " + ready)
+                Component.text(Lang.get("menu.cannon.stats", player, total, ready))
                         .color(ready > 0 ? NamedTextColor.YELLOW : NamedTextColor.GRAY)
                         .decoration(TextDecoration.ITALIC, false),
-                Component.text("Нажмите — выстрелить")
+                Component.text(Lang.get("menu.cannon.fire_lore", player))
                         .color(NamedTextColor.GRAY)
                         .decoration(TextDecoration.ITALIC, false)
         ));
@@ -816,12 +763,12 @@ public class ShipMenuListener implements Listener {
         return is;
     }
 
-    private ItemStack disabledItem(String label) {
+    private ItemStack disabledItem(Player player, String label) {
         ItemStack is = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta m = is.getItemMeta();
         m.displayName(Component.text(label).color(NamedTextColor.DARK_GRAY)
                 .decoration(TextDecoration.ITALIC, false));
-        m.lore(List.of(Component.text("Недоступно для этого транспорта")
+        m.lore(List.of(Component.text(Lang.get("menu.disabled.lore", player))
                 .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
         is.setItemMeta(m);
         return is;
@@ -840,7 +787,7 @@ public class ShipMenuListener implements Listener {
         };
     }
 
-    private ItemStack relCruiseItem(PlayerCraft craft, CruiseDirection dir, CruiseDirection active, String relLabel) {
+    private ItemStack relCruiseItem(Player player, PlayerCraft craft, CruiseDirection dir, CruiseDirection active, String relLabel) {
         boolean on = craft.getCruising() && active == dir;
         Material mat = switch (dir) {
             case UP   -> Material.FEATHER;
@@ -848,7 +795,7 @@ public class ShipMenuListener implements Listener {
             default   -> Material.ARROW;
         };
         String prefix = on ? "§a▶ " : "§7";
-        String lore   = on ? "§aКруиз АКТИВЕН" : "§7Нажмите для круиза";
+        String lore   = Lang.get(on ? "menu.cruise.active" : "menu.cruise.inactive", player);
         return item(mat, prefix + relLabel, lore);
     }
 
