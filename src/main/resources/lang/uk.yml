@@ -47,6 +47,7 @@ menu.cannon.fire_lore:  "Натисніть — вистрілити"
 menu.cannon.stats:      "Гармат: {0}  Готово: {1}"
 cannon.cannon:          "Стандартна гармата"
 cannon.standard:        "Стандартна гармата"
+cannon.standart cannon: "Стандартна гармата"
 cannon.carronade:       "Каронада"
 cannon.mortar:          "Мортира"
 
