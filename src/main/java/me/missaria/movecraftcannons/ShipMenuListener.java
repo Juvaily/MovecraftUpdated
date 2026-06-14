@@ -11,6 +11,7 @@ import net.countercraft.movecraft.MovecraftRotation;
 
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
+import net.countercraft.movecraft.events.CraftRotateEvent;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
 import org.bukkit.Location;
 import net.kyori.adventure.text.Component;
@@ -242,6 +243,59 @@ public class ShipMenuListener implements Listener {
     public void onMenuClose(InventoryCloseEvent event) {
         if (!(event.getInventory().getHolder() instanceof ShipMenuHolder)) return;
         menuActions.remove(event.getPlayer().getUniqueId());
+    }
+
+    // ── Blueprint rotation tracking ───────────────────────────────────────────
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCraftRotate(CraftRotateEvent event) {
+        if (!(event.getCraft() instanceof PlayerCraft pc)) return;
+        Player pilot = pc.getPilot();
+        if (pilot == null) return;
+
+        File f = blueprintFile(pilot);
+        if (!f.exists()) return;
+
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(f);
+        if (yaml.getKeys(false).isEmpty()) return;
+
+        HitBox oldBox = event.getOldHitBox();
+        HitBox newBox = event.getNewHitBox();
+        MovecraftLocation pivot = event.getOriginPoint();
+        MovecraftRotation rotation = event.getRotation();
+
+        int oldMinX = oldBox.getMinX(), oldMinY = oldBox.getMinY(), oldMinZ = oldBox.getMinZ();
+        int newMinX = newBox.getMinX(), newMinY = newBox.getMinY(), newMinZ = newBox.getMinZ();
+        int px = pivot.getX(), pz = pivot.getZ();
+
+        YamlConfiguration rotated = new YamlConfiguration();
+        for (String key : yaml.getKeys(false)) {
+            String[] parts = key.split(",");
+            int rx = Integer.parseInt(parts[0]);
+            int ry = Integer.parseInt(parts[1]);
+            int rz = Integer.parseInt(parts[2]);
+
+            int absX = oldMinX + rx;
+            int absY = oldMinY + ry;
+            int absZ = oldMinZ + rz;
+
+            int newAbsX, newAbsZ;
+            if (rotation == MovecraftRotation.CLOCKWISE) {
+                newAbsX = px + (pz - absZ);
+                newAbsZ = pz + (absX - px);
+            } else {
+                newAbsX = px - (pz - absZ);
+                newAbsZ = pz - (absX - px);
+            }
+
+            String newKey = (newAbsX - newMinX) + "," + (absY - newMinY) + "," + (newAbsZ - newMinZ);
+            rotated.set(newKey, yaml.getString(key));
+        }
+        try {
+            rotated.save(f);
+        } catch (IOException e) {
+            plugin.getLogger().warning("Failed to update blueprint after rotation: " + e.getMessage());
+        }
     }
 
     // ── Actions ───────────────────────────────────────────────────────────────
