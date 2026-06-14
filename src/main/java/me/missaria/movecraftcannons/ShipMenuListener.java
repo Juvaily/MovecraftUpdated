@@ -37,6 +37,9 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.World;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.File;
+import java.io.IOException;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -46,6 +49,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+
+import org.bukkit.configuration.file.YamlConfiguration;
 
 public class ShipMenuListener implements Listener {
 
@@ -150,14 +155,17 @@ public class ShipMenuListener implements Listener {
                 item(Material.FIRE_CHARGE, "§cОгонь!", "Выстрелить из всех готовых пушек"),
                 p -> fireAllCannons(p, craft));
 
-        Block repairSign = findSign(craft, "Repair:");
-        if (repairSign != null) {
-            setSlot(inv, actions, 7,
-                    item(Material.ANVIL, "§aРемонт", "Отремонтировать судно из материалов в сундуках"),
-                    p -> simulateClick(p, repairSign));
-        } else {
-            setSlot(inv, actions, 7, disabledItem("Нет знака [Repair:]"), null);
-        }
+        boolean hasBlueprint = new File(plugin.getDataFolder(),
+                "blueprints/" + player.getUniqueId() + ".yml").exists();
+        setSlot(inv, actions, 7,
+                hasBlueprint
+                        ? item(Material.ANVIL,      "§aРемонт",          "Восстановить повреждённые блоки из сундуков")
+                        : disabledItem("Нет чертежа — сначала сохраните"),
+                hasBlueprint ? p -> repairFromBlueprint(p, craft) : null);
+
+        setSlot(inv, actions, 8,
+                item(Material.WRITABLE_BOOK, "§eСохранить чертёж", "Запомнить текущее состояние корабля для ремонта"),
+                p -> saveBlueprint(p, craft));
 
         // Row 1: Left / Stop / Right
         setSlot(inv, actions, 9,  relCruiseItem(craft, lft, curDir, "Влево"),
@@ -455,6 +463,91 @@ public class ShipMenuListener implements Listener {
         player.sendMessage(Component.text("Выстрелено из " + canFire + " пушек!").color(NamedTextColor.GREEN));
         if (notReady > 0)
             player.sendMessage(Component.text(notReady + " пушек не готовы.").color(NamedTextColor.YELLOW));
+    }
+
+    // ── Blueprint repair ──────────────────────────────────────────────────────
+
+    private File blueprintFile(Player player) {
+        return new File(plugin.getDataFolder(), "blueprints/" + player.getUniqueId() + ".yml");
+    }
+
+    private void saveBlueprint(Player player, PlayerCraft craft) {
+        HitBox hitBox = craft.getHitBox();
+        World world = craft.getWorld();
+        int ox = hitBox.getMinX(), oy = hitBox.getMinY(), oz = hitBox.getMinZ();
+
+        YamlConfiguration yaml = new YamlConfiguration();
+        int count = 0;
+        for (MovecraftLocation loc : hitBox) {
+            Block b = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
+            if (b.getType().isAir()) continue;
+            String key = (loc.getX() - ox) + "," + (loc.getY() - oy) + "," + (loc.getZ() - oz);
+            yaml.set(key, b.getType().name());
+            count++;
+        }
+        try {
+            File f = blueprintFile(player);
+            f.getParentFile().mkdirs();
+            yaml.save(f);
+            player.sendMessage(Component.text("Чертёж сохранён: " + count + " блоков.")
+                    .color(NamedTextColor.GREEN));
+        } catch (IOException e) {
+            player.sendMessage(Component.text("Ошибка сохранения: " + e.getMessage())
+                    .color(NamedTextColor.RED));
+        }
+    }
+
+    private void repairFromBlueprint(Player player, PlayerCraft craft) {
+        File f = blueprintFile(player);
+        if (!f.exists()) {
+            player.sendMessage(Component.text("Чертёж не найден. Сохраните его кнопкой «Сохранить чертёж».")
+                    .color(NamedTextColor.RED));
+            return;
+        }
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(f);
+        HitBox hitBox = craft.getHitBox();
+        World world = craft.getWorld();
+        int ox = hitBox.getMinX(), oy = hitBox.getMinY(), oz = hitBox.getMinZ();
+
+        List<org.bukkit.inventory.Inventory> chests = findShipChests(craft);
+        int repaired = 0, missing = 0;
+
+        for (String key : yaml.getKeys(false)) {
+            String[] parts = key.split(",");
+            int rx = Integer.parseInt(parts[0]);
+            int ry = Integer.parseInt(parts[1]);
+            int rz = Integer.parseInt(parts[2]);
+            Material expected = Material.matchMaterial(yaml.getString(key, ""));
+            if (expected == null || expected.isAir()) continue;
+
+            Block block = world.getBlockAt(ox + rx, oy + ry, oz + rz);
+            if (block.getType() == expected) continue;
+
+            if (takeFromChests(chests, expected, 1)) {
+                block.setType(expected);
+                repaired++;
+            } else {
+                missing++;
+            }
+        }
+
+        if (repaired > 0)
+            player.sendMessage(Component.text("Отремонтировано: " + repaired + " блоков.").color(NamedTextColor.GREEN));
+        if (missing > 0)
+            player.sendMessage(Component.text("Не хватает материалов для " + missing + " блоков.").color(NamedTextColor.YELLOW));
+        if (repaired == 0 && missing == 0)
+            player.sendMessage(Component.text("Корабль не повреждён.").color(NamedTextColor.AQUA));
+    }
+
+    /** Remove {@code amount} of {@code mat} from the given chests in order. Returns true if all were removed. */
+    private boolean takeFromChests(List<org.bukkit.inventory.Inventory> chests, Material mat, int amount) {
+        int left = amount;
+        for (org.bukkit.inventory.Inventory inv : chests) {
+            if (left <= 0) break;
+            var result = inv.removeItem(new ItemStack(mat, left));
+            left = result.values().stream().mapToInt(ItemStack::getAmount).sum();
+        }
+        return left == 0;
     }
 
     // ── Item builders ─────────────────────────────────────────────────────────
