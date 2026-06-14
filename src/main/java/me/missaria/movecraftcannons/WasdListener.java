@@ -5,9 +5,12 @@ import net.countercraft.movecraft.MovecraftRotation;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
+import net.countercraft.movecraft.events.CraftTranslateEvent;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
-import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -18,6 +21,11 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
+import org.bukkit.scoreboard.DisplaySlot;
+import org.bukkit.scoreboard.Objective;
+import org.bukkit.scoreboard.Scoreboard;
 
 import java.util.Map;
 import java.util.UUID;
@@ -27,39 +35,34 @@ public class WasdListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
 
-    private final Map<UUID, int[]> latestDir  = new ConcurrentHashMap<>();
-    private final Map<UUID, Long>  latestTime = new ConcurrentHashMap<>();
-    private final Map<UUID, Long>  lastRotate = new ConcurrentHashMap<>();
+    private final Map<UUID, int[]>    latestDir       = new ConcurrentHashMap<>();
+    private final Map<UUID, Long>     latestTime      = new ConcurrentHashMap<>();
+    private final Map<UUID, Long>     lastRotate      = new ConcurrentHashMap<>();
 
-    // Saved player state while in Direct Control
-    private final Map<UUID, Boolean> savedAllowFlight = new ConcurrentHashMap<>();
-    private final Map<UUID, Boolean> savedFlying      = new ConcurrentHashMap<>();
-    private final Map<UUID, Float>   savedWalkSpeed   = new ConcurrentHashMap<>();
-    private final Map<UUID, Float>   savedFlySpeed    = new ConcurrentHashMap<>();
+    // Flight state saved on DC entry
+    private final Map<UUID, Boolean>  savedAllowFlight = new ConcurrentHashMap<>();
+    private final Map<UUID, Boolean>  savedFlying      = new ConcurrentHashMap<>();
+    private final Map<UUID, Float>    savedWalkSpeed   = new ConcurrentHashMap<>();
+    private final Map<UUID, Float>    savedFlySpeed    = new ConcurrentHashMap<>();
+
+    // DC extras: pre-DC position and scoreboard
+    private final Map<UUID, Location>   savedDcPosition = new ConcurrentHashMap<>();
+    private final Map<UUID, Scoreboard> dcScoreboards   = new ConcurrentHashMap<>();
 
     private static final long  ROTATE_DEBOUNCE = 600L;
-    // Minimum speed: slow enough to be invisible, non-zero so client always sends packets
     private static final float PILOT_SPEED     = 0.005f;
-    // Low threshold to catch near-zero deltas from minimum speed
     private static final double MOVE_THRESHOLD = 0.001;
+    private static final int   DC_HEIGHT       = 15; // blocks above ship top
 
     public WasdListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
         long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
         Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 0L, Math.max(1L, cooldown / 50L));
-        // Sync flight state with pilotLocked every 10 ticks
         Bukkit.getScheduler().runTaskTimer(plugin, this::syncFlightState, 0L, 10L);
     }
 
-    // ── Flight state management ────────────────────────────────────────────────
+    // ── Flight + DC state management ──────────────────────────────────────────
 
-    /**
-     * While pilotLocked:
-     * - Flying mode (no gravity, client can drift freely through air pockets)
-     * - WalkSpeed / FlySpeed set to PILOT_SPEED (~0): movement is nearly invisible
-     *   but non-zero, so the client sends a movement packet every tick while a key
-     *   is held — even near walls where at least a tiny gap exists.
-     */
     private void syncFlightState() {
         for (Player player : Bukkit.getOnlinePlayers()) {
             UUID uid = player.getUniqueId();
@@ -68,17 +71,37 @@ public class WasdListener implements Listener {
             boolean tracked = savedAllowFlight.containsKey(uid);
 
             if (locked && !tracked) {
-                savedAllowFlight.put(uid, player.getAllowFlight());
-                savedFlying.put(uid, player.isFlying());
-                // Guard: if speed is already at PILOT_SPEED (failed restore from prev session), save default
+                // ── Enter DC mode ──
+                // Save flight state
                 float curWalk = player.getWalkSpeed();
                 float curFly  = player.getFlySpeed();
+                savedAllowFlight.put(uid, player.getAllowFlight());
+                savedFlying.put(uid, player.isFlying());
                 savedWalkSpeed.put(uid, curWalk > PILOT_SPEED * 2 ? curWalk : 0.2f);
                 savedFlySpeed.put(uid,  curFly  > PILOT_SPEED * 2 ? curFly  : 0.1f);
                 player.setAllowFlight(true);
                 player.setFlying(true);
                 player.setWalkSpeed(PILOT_SPEED);
                 player.setFlySpeed(PILOT_SPEED);
+
+                // Save position, teleport above ship
+                savedDcPosition.put(uid, player.getLocation().clone());
+                player.teleport(aboveShip(craft, player.getLocation().getYaw(), player.getLocation().getPitch()));
+
+                // Invulnerable + invisible to others
+                player.setInvulnerable(true);
+                player.addPotionEffect(new PotionEffect(
+                        PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 0,
+                        true,   // ambient (fewer particles for self)
+                        false,  // no particles for others
+                        false)); // no icon
+
+                // Scoreboard sidebar
+                String shipName = craftName(craft);
+                Scoreboard sb = buildDcScoreboard(shipName);
+                dcScoreboards.put(uid, sb);
+                player.setScoreboard(sb);
+
             } else if (!locked && tracked) {
                 restoreFlight(player);
             }
@@ -87,25 +110,38 @@ public class WasdListener implements Listener {
 
     private void restoreFlight(Player player) {
         UUID uid = player.getUniqueId();
+
+        // Restore flight
         Boolean origAllow  = savedAllowFlight.remove(uid);
         Boolean origFlying = savedFlying.remove(uid);
         Float   origWalk   = savedWalkSpeed.remove(uid);
         Float   origFly    = savedFlySpeed.remove(uid);
+
         if (origAllow != null) {
             player.setAllowFlight(origAllow);
             if (origFlying != null && !origFlying && !origAllow) player.setFlying(false);
         } else {
-            // Failsafe: no saved state, still reset speeds to defaults
             player.setWalkSpeed(0.2f);
             player.setFlySpeed(0.1f);
-            latestDir.remove(uid);
-            latestTime.remove(uid);
-            return;
         }
-        player.setWalkSpeed(origWalk != null ? origWalk : 0.2f);
-        player.setFlySpeed(origFly   != null ? origFly  : 0.1f);
+        if (origWalk != null) player.setWalkSpeed(origWalk);
+        if (origFly  != null) player.setFlySpeed(origFly);
+
         latestDir.remove(uid);
         latestTime.remove(uid);
+
+        // Restore DC extras
+        player.setInvulnerable(false);
+        player.removePotionEffect(PotionEffectType.INVISIBILITY);
+        dcScoreboards.remove(uid);
+        try { player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard()); }
+        catch (Exception ignored) {}
+
+        Location savedPos = savedDcPosition.remove(uid);
+        if (savedPos != null) {
+            player.sendMessage(Component.text("Возврат на исходную позицию.").color(NamedTextColor.GRAY));
+            player.teleport(savedPos);
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -118,6 +154,26 @@ public class WasdListener implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         restoreFlight(event.getPlayer());
+    }
+
+    // ── Follow ship on translate ───────────────────────────────────────────────
+
+    // When the craft moves, move the hovering pilot the same delta (next tick,
+    // after blocks have physically translated).
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCraftTranslateDC(CraftTranslateEvent event) {
+        if (!(event.getCraft() instanceof net.countercraft.movecraft.craft.PilotedCraft pc)) return;
+        Player pilot = pc.getPilot();
+        if (pilot == null || !savedDcPosition.containsKey(pilot.getUniqueId())) return;
+
+        HitBox oldBox = event.getOldHitBox();
+        HitBox newBox = event.getNewHitBox();
+        int dx = newBox.getMinX() - oldBox.getMinX();
+        int dz = newBox.getMinZ() - oldBox.getMinZ();
+        if (dx == 0 && dz == 0) return;
+
+        Location cur = pilot.getLocation().clone();
+        Bukkit.getScheduler().runTask(plugin, () -> pilot.teleport(cur.add(dx, 0, dz)));
     }
 
     // ── WASD direction capture ─────────────────────────────────────────────────
@@ -145,7 +201,6 @@ public class WasdListener implements Listener {
         latestDir.put(uid, dir);
         latestTime.put(uid, System.currentTimeMillis());
 
-        // Push player back to original position (keep look direction)
         Location pushBack = from.clone();
         pushBack.setYaw(to.getYaw());
         pushBack.setPitch(to.getPitch());
@@ -157,9 +212,7 @@ public class WasdListener implements Listener {
     private void tick() {
         long now      = System.currentTimeMillis();
         long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
-        // Near-zero speed means events fire every tick (~50ms) while key is held.
-        // TTL of 150ms = 3 ticks: ship stops almost immediately when key is released.
-        long ttl = 150L;
+        long ttl      = 150L;
 
         latestDir.forEach((uid, dir) -> {
             Long t = latestTime.get(uid);
@@ -244,5 +297,52 @@ public class WasdListener implements Listener {
                 (hb.getMinY() + hb.getMaxY()) / 2,
                 (hb.getMinZ() + hb.getMaxZ()) / 2
         ));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private Location aboveShip(PlayerCraft craft, float yaw, float pitch) {
+        HitBox hb = craft.getHitBox();
+        double cx = (hb.getMinX() + hb.getMaxX()) / 2.0;
+        double cy = hb.getMaxY() + DC_HEIGHT;
+        double cz = (hb.getMinZ() + hb.getMaxZ()) / 2.0;
+        Location loc = new Location(craft.getWorld(), cx, cy, cz);
+        loc.setYaw(yaw);
+        loc.setPitch(70f); // look slightly down toward ship
+        return loc;
+    }
+
+    private String craftName(PlayerCraft craft) {
+        try {
+            String n = craft.getType().getStringProperty(
+                    net.countercraft.movecraft.craft.type.CraftType.NAME);
+            if (n != null && !n.isBlank()) return n;
+        } catch (Exception ignored) {}
+        return "Транспорт";
+    }
+
+    @SuppressWarnings("deprecation")
+    private Scoreboard buildDcScoreboard(String shipName) {
+        Scoreboard sb = Bukkit.getScoreboardManager().getNewScoreboard();
+        Objective obj = sb.registerNewObjective("dc", "dummy",
+                Component.text("⚓ Direct Control")
+                        .color(NamedTextColor.DARK_AQUA)
+                        .decoration(TextDecoration.BOLD, true));
+        obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+
+        // Entries are shown highest score at top; use unique strings via color codes.
+        String[] lines = {
+            "§e" + shipName,
+            "§8─────────────────",
+            "§7WASD§8: движение",
+            "§7Q §8: ←   §7F §8: →",
+            "§7Книга§8: открыть меню",
+            "§8═════════════════",
+            "§7Leave§8: выйти",
+        };
+        for (int i = 0; i < lines.length; i++) {
+            obj.getScore(lines[i]).setScore(lines.length - i);
+        }
+        return sb;
     }
 }

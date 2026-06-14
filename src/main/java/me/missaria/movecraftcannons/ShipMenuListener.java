@@ -40,7 +40,6 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -50,15 +49,17 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
-
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.scheduler.BukkitTask;
 
 public class ShipMenuListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
 
     // Per-player: slot → action to execute on click
-    private final Map<UUID, Consumer<Player>[]> menuActions = new ConcurrentHashMap<>();
+    private final Map<UUID, Consumer<Player>[]> menuActions   = new ConcurrentHashMap<>();
+    // Running repair tasks per player
+    private final Map<UUID, BukkitTask>         activeRepairs = new ConcurrentHashMap<>();
 
     public ShipMenuListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
@@ -99,23 +100,22 @@ public class ShipMenuListener implements Listener {
     /*
      * Layout (27 slots = 3×9):
      *
-     *  [RotL] [  N  ] [RotR]  [ ] [Release] [Reload] [FireAll] [Repair] [  ]
-     *  [ W  ] [Stop ] [  E ]  [ ] [TypeA  ] [TypeB ] [TypeC  ] [TypeD ] [TypeE]
-     *  [  ↑ ] [  S  ] [  ↓ ]  [ ] [TypeF  ] [TypeG ] [TypeH  ] [TypeI ] [TypeJ]
+     *  [RotL] [  N  ] [RotR]  [ ] [Release] [Reload] [FireAll] [Repair] [Blueprint]
+     *  [ W  ] [Stop ] [  E ]  [←Port] [Type1] [Type2] [Type3] [Type4] [Type5]
+     *  [  ↑ ] [  S  ] [  ↓ ]  [→Stbd] [Type6] [Type7] [Type8] [Type9] [Type10]
      *
      * Slots 0-2:   Rotate-L / Cruise-N / Rotate-R
      * Slot  4:     Release
-     * Slot  5:     Reload all cannons from chests
+     * Slot  5:     Reload all cannons
      * Slot  6:     Fire all cannons
-     * Slot  7:     Repair (via Repair: sign on craft)
-     * Slot  9:     Cruise-W
-     * Slot  10:    Cruise Stop
-     * Slot  11:    Cruise-E
-     * Slots 13-17: Cannon type buttons (row 1) — up to 5 types
-     * Slot  18:    Cruise Up
-     * Slot  19:    Cruise S
-     * Slot  20:    Cruise Down
-     * Slots 22-26: Cannon type buttons (row 2) — types 6-10
+     * Slot  7:     Repair / Cancel repair
+     * Slot  8:     Save blueprint
+     * Slot  9:     Cruise-W  Slot 10: Stop  Slot 11: Cruise-E
+     * Slot  12:    Fire port (left broadside relative to pilot yaw)
+     * Slots 13-17: Cannon types (row 1)
+     * Slot  18:    Cruise Up  Slot 19: S  Slot 20: Down
+     * Slot  21:    Fire starboard (right broadside)
+     * Slots 22-26: Cannon types (row 2)
      */
     @SuppressWarnings("unchecked")
     private void openMenu(Player player, PlayerCraft craft) {
@@ -156,26 +156,31 @@ public class ShipMenuListener implements Listener {
                 item(Material.FIRE_CHARGE, "§cОгонь!", "Выстрелить из всех готовых пушек"),
                 p -> fireAllCannons(p, craft));
 
-        boolean hasBlueprint = new File(plugin.getDataFolder(),
-                "blueprints/" + player.getUniqueId() + ".yml").exists();
-        setSlot(inv, actions, 7,
-                hasBlueprint
-                        ? item(Material.ANVIL,      "§aРемонт",          "Восстановить повреждённые блоки из сундуков")
-                        : disabledItem("Нет чертежа — сначала сохраните"),
-                hasBlueprint ? p -> repairFromBlueprint(p, craft) : null);
+        // Repair / Cancel-repair button
+        boolean repairing    = activeRepairs.containsKey(player.getUniqueId());
+        boolean hasBlueprint = blueprintFile(player).exists();
+        if (repairing) {
+            setSlot(inv, actions, 7,
+                    item(Material.BARRIER, "§cОтменить ремонт", "Прервать текущий процесс ремонта"),
+                    p -> cancelRepair(p));
+        } else if (hasBlueprint) {
+            setSlot(inv, actions, 7,
+                    item(Material.ANVIL, "§aРемонт", "Восстановить повреждённые блоки из сундуков"),
+                    p -> repairFromBlueprint(p, craft));
+        } else {
+            setSlot(inv, actions, 7, disabledItem("Нет чертежа — сначала сохраните"), null);
+        }
 
         setSlot(inv, actions, 8,
-                item(Material.WRITABLE_BOOK, "§eСохранить чертёж", "Запомнить текущее состояние корабля для ремонта"),
+                item(Material.WRITABLE_BOOK, "§eСохранить чертёж", "Запомнить текущее состояние корабля"),
                 p -> saveBlueprint(p, craft));
 
         // Row 1: Left / Stop / Right
         setSlot(inv, actions, 9,  relCruiseItem(craft, lft, curDir, "Влево"),
                 p -> setCruise(p, craft, lft));
-
         setSlot(inv, actions, 10,
                 item(Material.BARRIER, "§cОстановить крейсер", "Отключить крейсерский режим"),
                 p -> stopCruise(craft));
-
         setSlot(inv, actions, 11, relCruiseItem(craft, rgt, curDir, "Вправо"),
                 p -> setCruise(p, craft, rgt));
 
@@ -190,12 +195,26 @@ public class ShipMenuListener implements Listener {
             setSlot(inv, actions, 18, disabledItem("Вверх недоступно"), null);
             setSlot(inv, actions, 20, disabledItem("Вниз недоступно"),  null);
         }
-
         setSlot(inv, actions, 19, relCruiseItem(craft, bwd, curDir, "Назад"),
                 p -> setCruise(p, craft, bwd));
 
-        // Cannon type buttons: group by designID, fill slots 12-17 then 21-26
+        // Cannon data: types + broadside groupings
         List<Cannon> allCannons = findCannonsOnCraft(craft);
+
+        // Broadside fire: slot 12 = port (left), slot 21 = starboard (right)
+        BlockFace portFace = cruiseDirToFace(lft);
+        BlockFace stbdFace = cruiseDirToFace(rgt);
+        List<Cannon> portCannons = allCannons.stream()
+                .filter(c -> portFace != null && portFace == safeGetDir(c)).toList();
+        List<Cannon> stbdCannons = allCannons.stream()
+                .filter(c -> stbdFace != null && stbdFace == safeGetDir(c)).toList();
+
+        setSlot(inv, actions, 12, broadsideItem("§c← Левый борт", portCannons),
+                portCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, portCannons));
+        setSlot(inv, actions, 21, broadsideItem("§a→ Правый борт", stbdCannons),
+                stbdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, stbdCannons));
+
+        // Cannon type buttons: group by designID, fill slots 13-17 then 22-26
         Map<String, List<Cannon>> byType = new LinkedHashMap<>();
         for (Cannon cannon : allCannons) {
             try {
@@ -207,11 +226,10 @@ public class ShipMenuListener implements Listener {
         int si = 0;
         for (Map.Entry<String, List<Cannon>> entry : byType.entrySet()) {
             if (si >= typeSlots.length) break;
-            String designId = entry.getKey();
             List<Cannon> group = new ArrayList<>(entry.getValue());
             long ready = group.stream().filter(Cannon::isReadyToFire).count();
             setSlot(inv, actions, typeSlots[si],
-                    cannonTypeItem(designId, group.size(), (int) ready),
+                    cannonTypeItem(entry.getKey(), group.size(), (int) ready),
                     p -> fireCannonGroup(p, craft, group));
             si++;
         }
@@ -552,6 +570,9 @@ public class ShipMenuListener implements Listener {
     }
 
     private void repairFromBlueprint(Player player, PlayerCraft craft) {
+        UUID uid = player.getUniqueId();
+        cancelRepair(player); // cancel any previous repair silently
+
         File f = blueprintFile(player);
         if (!f.exists()) {
             player.sendMessage(Component.text("Чертёж не найден. Сохраните его кнопкой «Сохранить чертёж».")
@@ -562,38 +583,118 @@ public class ShipMenuListener implements Listener {
         HitBox hitBox = craft.getHitBox();
         World world = craft.getWorld();
         int ox = hitBox.getMinX(), oy = hitBox.getMinY(), oz = hitBox.getMinZ();
-
         List<org.bukkit.inventory.Inventory> chests = findShipChests(craft);
-        int repaired = 0, missing = 0;
 
+        // Build ordered list of damaged positions
+        record Job(Block block, Material mat) {}
+        List<Job> jobs = new ArrayList<>();
         for (String key : yaml.getKeys(false)) {
-            String[] parts = key.split(",");
-            int rx = Integer.parseInt(parts[0]);
-            int ry = Integer.parseInt(parts[1]);
-            int rz = Integer.parseInt(parts[2]);
+            String[] p = key.split(",");
             Material expected = Material.matchMaterial(yaml.getString(key, ""));
             if (expected == null || expected.isAir()) continue;
-
-            Block block = world.getBlockAt(ox + rx, oy + ry, oz + rz);
-            if (block.getType() == expected) continue;
-
-            if (takeFromChests(chests, expected, 1)) {
-                block.setType(expected);
-                repaired++;
-            } else {
-                missing++;
-            }
+            Block block = world.getBlockAt(ox + Integer.parseInt(p[0]),
+                                           oy + Integer.parseInt(p[1]),
+                                           oz + Integer.parseInt(p[2]));
+            if (block.getType() != expected) jobs.add(new Job(block, expected));
+        }
+        if (jobs.isEmpty()) {
+            player.sendMessage(Component.text("Корабль не повреждён.").color(NamedTextColor.AQUA));
+            return;
         }
 
-        if (repaired > 0)
-            player.sendMessage(Component.text("Отремонтировано: " + repaired + " блоков.").color(NamedTextColor.GREEN));
-        if (missing > 0)
-            player.sendMessage(Component.text("Не хватает материалов для " + missing + " блоков.").color(NamedTextColor.YELLOW));
-        if (repaired == 0 && missing == 0)
-            player.sendMessage(Component.text("Корабль не повреждён.").color(NamedTextColor.AQUA));
+        int blocksPerTick = plugin.getConfig().getInt("repair.blocks_per_tick", 1);
+        int tickDelay     = plugin.getConfig().getInt("repair.tick_delay", 5);
+        int total         = jobs.size();
+        player.sendMessage(Component.text("Ремонт: " + total + " блоков...")
+                .color(NamedTextColor.GREEN));
+
+        // Find pilot sign now (before craft potentially changes)
+        Block pilotSign = findCraftSign(craft);
+        Location pilotSignLoc = pilotSign != null ? pilotSign.getLocation().clone() : null;
+
+        org.bukkit.scheduler.BukkitRunnable runnable = new org.bukkit.scheduler.BukkitRunnable() {
+            int idx      = 0;
+            int repaired = 0;
+            int missing  = 0;
+
+            @Override
+            public void run() {
+                int end = Math.min(idx + blocksPerTick, total);
+                for (int i = idx; i < end; i++) {
+                    Job job = jobs.get(i);
+                    if (job.block().getType() == job.mat()) continue; // already fixed
+                    if (takeFromChests(chests, job.mat(), 1)) {
+                        job.block().setType(job.mat());
+                        repaired++;
+                    } else {
+                        missing++;
+                    }
+                }
+                idx = end;
+                player.sendActionBar(Component.text("⚒ Ремонт: " + idx + "/" + total)
+                        .color(NamedTextColor.GREEN));
+
+                if (idx < total) return;
+
+                // ── Repair done ──
+                cancel();
+                activeRepairs.remove(uid);
+                player.sendActionBar(Component.empty());
+
+                if (repaired > 0)
+                    player.sendMessage(Component.text("Отремонтировано " + repaired + " блоков.").color(NamedTextColor.GREEN));
+                if (missing > 0)
+                    player.sendMessage(Component.text("Не хватило материалов для " + missing + " блоков.").color(NamedTextColor.YELLOW));
+
+                // Release and re-detect so new blocks join the craft
+                net.countercraft.movecraft.events.CraftReleaseEvent re =
+                        new net.countercraft.movecraft.events.CraftReleaseEvent(
+                                craft, net.countercraft.movecraft.events.CraftReleaseEvent.Reason.PLAYER);
+                Bukkit.getPluginManager().callEvent(re);
+                if (!re.isCancelled()) CraftManager.getInstance().release(craft, re.getReason(), false);
+
+                if (pilotSignLoc != null) {
+                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                        simulateClick(player, pilotSignLoc.getBlock());
+                    }, 2L);
+                } else {
+                    player.sendMessage(Component.text("Переоснастьте транспорт чтобы новые блоки стали частью корабля.")
+                            .color(NamedTextColor.YELLOW));
+                }
+            }
+        };
+        BukkitTask task = runnable.runTaskTimer(plugin, 0L, tickDelay);
+        activeRepairs.put(uid, task);
     }
 
-    /** Remove {@code amount} of {@code mat} from the given chests in order. Returns true if all were removed. */
+    private void cancelRepair(Player player) {
+        BukkitTask t = activeRepairs.remove(player.getUniqueId());
+        if (t != null) {
+            t.cancel();
+            player.sendActionBar(Component.empty());
+            player.sendMessage(Component.text("Ремонт отменён.").color(NamedTextColor.YELLOW));
+        }
+    }
+
+    /** Find the Movecraft pilot sign on the craft (line 0 matches craft type name). */
+    private Block findCraftSign(PlayerCraft craft) {
+        String typeName = "";
+        try { typeName = craft.getType().getStringProperty(
+                net.countercraft.movecraft.craft.type.CraftType.NAME); }
+        catch (Exception ignored) {}
+        if (typeName == null || typeName.isBlank()) return null;
+        String name = typeName;
+        var world = craft.getWorld();
+        for (var loc : craft.getHitBox()) {
+            Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
+            if (!(block.getState() instanceof Sign sign)) continue;
+            String l0 = stripColor(getLine(sign, 0)).trim();
+            if (l0.equalsIgnoreCase(name) || l0.equalsIgnoreCase("[" + name + "]")) return block;
+        }
+        return null;
+    }
+
+    /** Remove {@code amount} of {@code mat} from the given chests in order. Returns true if all removed. */
     private boolean takeFromChests(List<org.bukkit.inventory.Inventory> chests, Material mat, int amount) {
         int left = amount;
         for (org.bukkit.inventory.Inventory inv : chests) {
@@ -602,6 +703,32 @@ public class ShipMenuListener implements Listener {
             left = result.values().stream().mapToInt(ItemStack::getAmount).sum();
         }
         return left == 0;
+    }
+
+    // ── Broadside helpers ─────────────────────────────────────────────────────
+
+    private BlockFace cruiseDirToFace(CruiseDirection dir) {
+        return switch (dir) {
+            case NORTH -> BlockFace.NORTH;
+            case SOUTH -> BlockFace.SOUTH;
+            case EAST  -> BlockFace.EAST;
+            case WEST  -> BlockFace.WEST;
+            default    -> null;
+        };
+    }
+
+    private BlockFace safeGetDir(Cannon cannon) {
+        try { return cannon.getCannonPosition().getCannonDirection(); }
+        catch (Exception e) { return null; }
+    }
+
+    private ItemStack broadsideItem(String coloredLabel, List<Cannon> cannons) {
+        if (cannons.isEmpty()) return disabledItem(coloredLabel.replaceAll("§.", ""));
+        long ready = cannons.stream().filter(Cannon::isReadyToFire).count();
+        Material mat = ready > 0 ? Material.FIRE_CHARGE : Material.BARRIER;
+        return item(mat, coloredLabel,
+                "Пушек: " + cannons.size() + "  Готово: " + ready,
+                "Нажмите — залп этим бортом");
     }
 
     // ── Item builders ─────────────────────────────────────────────────────────
