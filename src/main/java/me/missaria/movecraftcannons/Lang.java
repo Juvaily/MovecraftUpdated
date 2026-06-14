@@ -20,7 +20,7 @@ public class Lang {
     public static void load(Plugin plugin) {
         serverLang = plugin.getConfig().getString("language", DEFAULT);
         for (String code : List.of("ru", "uk")) {
-            plugin.saveResource("lang/" + code + ".yml", false);
+            plugin.saveResource("lang/" + code + ".yml", true);
             File f = new File(plugin.getDataFolder(), "lang/" + code + ".yml");
             locales.put(code, YamlConfiguration.loadConfiguration(f));
         }
