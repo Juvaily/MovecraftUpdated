@@ -336,51 +336,17 @@ public class HealthBarListener implements Listener {
         return text.build();
     }
 
-    // Translations for common English custom entry names used in craft type YAMLs
-    private static final java.util.Map<String, String> ENTRY_NAMES = new java.util.HashMap<>();
-    static {
-        ENTRY_NAMES.put("chests",       "Сундуки, бочки");
-        ENTRY_NAMES.put("chest",        "Сундук");
-        ENTRY_NAMES.put("barrel",       "Бочка");
-        ENTRY_NAMES.put("barrels",      "Бочки");
-        ENTRY_NAMES.put("planks",       "Доски");
-        ENTRY_NAMES.put("plank",        "Доска");
-        ENTRY_NAMES.put("logs",         "Брёвна");
-        ENTRY_NAMES.put("log",          "Бревно");
-        ENTRY_NAMES.put("wool",         "Шерсть");
-        ENTRY_NAMES.put("sails",        "Паруса");
-        ENTRY_NAMES.put("sail",         "Парус");
-        ENTRY_NAMES.put("wood",         "Дерево");
-        ENTRY_NAMES.put("stone",        "Камень");
-        ENTRY_NAMES.put("glass",        "Стекло");
-        ENTRY_NAMES.put("iron",         "Железо");
-        ENTRY_NAMES.put("gold",         "Золото");
-        ENTRY_NAMES.put("diamond",      "Алмаз");
-        ENTRY_NAMES.put("obsidian",     "Обсидиан");
-        ENTRY_NAMES.put("balloons",     "Баллоны");
-        ENTRY_NAMES.put("balloon",      "Баллон");
-        ENTRY_NAMES.put("engine",       "Двигатель");
-        ENTRY_NAMES.put("engines",      "Двигатели");
-        ENTRY_NAMES.put("fuel",         "Топливо");
-        ENTRY_NAMES.put("blocks",       "Блоки");
-        ENTRY_NAMES.put("hull",         "Корпус");
-        ENTRY_NAMES.put("wings",        "Крылья");
-        ENTRY_NAMES.put("propeller",    "Пропеллер");
-        ENTRY_NAMES.put("propellers",   "Пропеллеры");
-    }
-
-    /** Label for a moveblock/flyblock entry: custom name → RU_NAMES (single material) → fallback. */
+    /** Label for a moveblock/flyblock entry: lang file → RU_NAMES (single material) → fallback. */
     private String entryLabel(RequiredBlockEntry entry) {
         // 1. Custom name from craft YAML takes priority
         String n = entry.getName();
         if (n != null && !n.isBlank()) {
-            String key = n.trim().toLowerCase();
-            // Check ENTRY_NAMES for known English labels
-            String ru = ENTRY_NAMES.get(key);
-            if (ru != null) return ru;
-            // Name might be a material key like "coal_block" — try to resolve it
+            String key = "health.entry." + n.trim().toLowerCase();
+            String localized = Lang.get(key);
+            if (!localized.equals(key)) return localized; // found in lang file
+            // Might be a material key like "coal_block"
             try {
-                Material m = Material.matchMaterial(key);
+                Material m = Material.matchMaterial(n.trim().toLowerCase());
                 if (m != null) {
                     String ruMat = RU_NAMES.get(m);
                     if (ruMat != null) return ruMat;
@@ -389,7 +355,7 @@ public class HealthBarListener implements Listener {
             return n;
         }
 
-        // 2. Single-material entries: use RU_NAMES for a precise Russian name
+        // 2. Single-material entries: use RU_NAMES
         try {
             var mats = new ArrayList<>(entry.getMaterials());
             if (mats.size() == 1) {
@@ -398,14 +364,13 @@ public class HealthBarListener implements Listener {
                 if (ru != null) return ru;
                 return m.name().replace('_', ' ').toLowerCase();
             }
-            // 3. Multi-material entries without custom name: use raw first material name
             if (!mats.isEmpty()) {
                 Material m = (Material) mats.get(0);
                 return m.name().replace('_', ' ').toLowerCase();
             }
         } catch (Exception ignored) {}
 
-        return "Блок";
+        return Lang.get("health.entry.block");
     }
 
     private String craftTitle(Craft craft) {
