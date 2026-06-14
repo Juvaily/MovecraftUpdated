@@ -5,13 +5,10 @@ import net.countercraft.movecraft.MovecraftRotation;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
-import net.countercraft.movecraft.events.CraftTranslateEvent;
-import net.countercraft.movecraft.util.hitboxes.HitBox;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -144,25 +141,6 @@ public class WasdListener implements Listener {
         restoreFlight(event.getPlayer());
     }
 
-    // ── Follow ship on translate ───────────────────────────────────────────────
-
-    // When the craft moves, move the hovering pilot the same delta (next tick,
-    // after blocks have physically translated).
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onCraftTranslateDC(CraftTranslateEvent event) {
-        if (!(event.getCraft() instanceof net.countercraft.movecraft.craft.PilotedCraft pc)) return;
-        Player pilot = pc.getPilot();
-        if (pilot == null || !savedAllowFlight.containsKey(pilot.getUniqueId())) return;
-
-        HitBox oldBox = event.getOldHitBox();
-        HitBox newBox = event.getNewHitBox();
-        int dx = newBox.getMinX() - oldBox.getMinX();
-        int dz = newBox.getMinZ() - oldBox.getMinZ();
-        if (dx == 0 && dz == 0) return;
-
-        Location cur = pilot.getLocation().clone();
-        Bukkit.getScheduler().runTask(plugin, () -> pilot.teleport(cur.add(dx, 0, dz)));
-    }
 
     // ── WASD direction capture ─────────────────────────────────────────────────
 

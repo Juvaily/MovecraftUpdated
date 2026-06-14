@@ -45,6 +45,7 @@ menu.cruise.inactive:   "§7Натисніть для круїзу"
 # ── Cannon type buttons ───────────────────────────────────────────────────────
 menu.cannon.fire_lore:  "Натисніть — вистрілити"
 menu.cannon.stats:      "Гармат: {0}  Готово: {1}"
+cannon.cannon:          "Стандартна гармата"
 cannon.standard:        "Стандартна гармата"
 cannon.carronade:       "Каронада"
 cannon.mortar:          "Мортира"

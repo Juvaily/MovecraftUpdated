@@ -45,6 +45,7 @@ menu.cruise.inactive:   "§7Нажмите для круиза"
 # ── Cannon type buttons ───────────────────────────────────────────────────────
 menu.cannon.fire_lore:  "Нажмите — выстрелить"
 menu.cannon.stats:      "Пушек: {0}  Готово: {1}"
+cannon.cannon:          "Стандартная пушка"
 cannon.standard:        "Стандартная пушка"
 cannon.carronade:       "Карронада"
 cannon.mortar:          "Мортира"
