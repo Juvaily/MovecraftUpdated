@@ -52,7 +52,6 @@ public class WasdListener implements Listener {
     private static final long  ROTATE_DEBOUNCE = 600L;
     private static final float PILOT_SPEED     = 0.005f;
     private static final double MOVE_THRESHOLD = 0.001;
-    private static final int   DC_HEIGHT       = 15; // blocks above ship top
 
     public WasdListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
@@ -303,12 +302,12 @@ public class WasdListener implements Listener {
 
     private Location aboveShip(PlayerCraft craft, float yaw, float pitch) {
         HitBox hb = craft.getHitBox();
-        double cx = (hb.getMinX() + hb.getMaxX()) / 2.0;
-        double cy = hb.getMaxY() + DC_HEIGHT;
-        double cz = (hb.getMinZ() + hb.getMaxZ()) / 2.0;
+        double cx = (hb.getMinX() + hb.getMaxX()) / 2.0 + 0.5;
+        double cy = hb.getMaxY() + 1;
+        double cz = (hb.getMinZ() + hb.getMaxZ()) / 2.0 + 0.5;
         Location loc = new Location(craft.getWorld(), cx, cy, cz);
         loc.setYaw(yaw);
-        loc.setPitch(70f); // look slightly down toward ship
+        loc.setPitch(0f);
         return loc;
     }
 

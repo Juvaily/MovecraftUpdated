@@ -100,22 +100,23 @@ public class ShipMenuListener implements Listener {
     /*
      * Layout (27 slots = 3×9):
      *
-     *  [RotL] [  N  ] [RotR]  [ ] [Release] [Reload] [FireAll] [Repair] [Blueprint]
-     *  [ W  ] [Stop ] [  E ]  [←Port] [Type1] [Type2] [Type3] [Type4] [Type5]
-     *  [  ↑ ] [  S  ] [  ↓ ]  [→Stbd] [Type6] [Type7] [Type8] [Type9] [Type10]
+     *  [RotL] [ Fwd ] [RotR]  [  ] [Release] [Reload] [FireAll] [Repair] [Blueprint]
+     *  [  W ] [Stop ] [  E ]  [  ] [Type1  ] [Type2 ] [Type3  ] [Type4 ] [Type5    ]
+     *  [  ↑ ] [  S  ] [  ↓ ]  [  ] [← Port ] [→ Stbd] [↑ Bow  ] [↓ Stern] [      ]
      *
-     * Slots 0-2:   Rotate-L / Cruise-N / Rotate-R
+     * Slots 0-2:   Rotate-L / Cruise-fwd / Rotate-R
      * Slot  4:     Release
      * Slot  5:     Reload all cannons
      * Slot  6:     Fire all cannons
      * Slot  7:     Repair / Cancel repair
      * Slot  8:     Save blueprint
-     * Slot  9:     Cruise-W  Slot 10: Stop  Slot 11: Cruise-E
-     * Slot  12:    Fire port (left broadside relative to pilot yaw)
+     * Slots 9-11:  Cruise left / Stop / Cruise right
      * Slots 13-17: Cannon types (row 1)
-     * Slot  18:    Cruise Up  Slot 19: S  Slot 20: Down
-     * Slot  21:    Fire starboard (right broadside)
-     * Slots 22-26: Cannon types (row 2)
+     * Slots 18-20: Cruise up / Cruise back / Cruise down
+     * Slot  22:    Fire port (left broadside)
+     * Slot  23:    Fire starboard (right broadside)
+     * Slot  24:    Fire bow (forward cannons)
+     * Slot  25:    Fire stern (rear cannons)
      */
     @SuppressWarnings("unchecked")
     private void openMenu(Player player, PlayerCraft craft) {
@@ -201,20 +202,31 @@ public class ShipMenuListener implements Listener {
         // Cannon data: types + broadside groupings
         List<Cannon> allCannons = findCannonsOnCraft(craft);
 
-        // Broadside fire: slot 12 = port (left), slot 21 = starboard (right)
+        // Directional cannon groups
         BlockFace portFace = cruiseDirToFace(lft);
         BlockFace stbdFace = cruiseDirToFace(rgt);
+        BlockFace fwdFace  = cruiseDirToFace(fwd);
+        BlockFace bwdFace  = cruiseDirToFace(bwd);
         List<Cannon> portCannons = allCannons.stream()
                 .filter(c -> portFace != null && portFace == safeGetDir(c)).toList();
         List<Cannon> stbdCannons = allCannons.stream()
                 .filter(c -> stbdFace != null && stbdFace == safeGetDir(c)).toList();
+        List<Cannon> fwdCannons = allCannons.stream()
+                .filter(c -> fwdFace != null && fwdFace == safeGetDir(c)).toList();
+        List<Cannon> bwdCannons = allCannons.stream()
+                .filter(c -> bwdFace != null && bwdFace == safeGetDir(c)).toList();
 
-        setSlot(inv, actions, 12, broadsideItem("§c← Левый борт", portCannons),
+        // Row 2, cols 4-7: Port / Starboard / Bow / Stern
+        setSlot(inv, actions, 22, broadsideItem("§c← Левый борт", portCannons),
                 portCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, portCannons));
-        setSlot(inv, actions, 21, broadsideItem("§a→ Правый борт", stbdCannons),
+        setSlot(inv, actions, 23, broadsideItem("§a→ Правый борт", stbdCannons),
                 stbdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, stbdCannons));
+        setSlot(inv, actions, 24, broadsideItem("§e↑ Носовые", fwdCannons),
+                fwdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, fwdCannons));
+        setSlot(inv, actions, 25, broadsideItem("§6↓ Кормовые", bwdCannons),
+                bwdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, bwdCannons));
 
-        // Cannon type buttons: group by designID, fill slots 13-17 then 22-26
+        // Cannon type buttons: group by designID, fill slots 13-17 (row 1)
         Map<String, List<Cannon>> byType = new LinkedHashMap<>();
         for (Cannon cannon : allCannons) {
             try {
@@ -222,7 +234,7 @@ public class ShipMenuListener implements Listener {
                 byType.computeIfAbsent(id, k -> new ArrayList<>()).add(cannon);
             } catch (Exception ignored) {}
         }
-        int[] typeSlots = {13, 14, 15, 16, 17, 22, 23, 24, 25, 26};
+        int[] typeSlots = {13, 14, 15, 16, 17};
         int si = 0;
         for (Map.Entry<String, List<Cannon>> entry : byType.entrySet()) {
             if (si >= typeSlots.length) break;
@@ -484,15 +496,15 @@ public class ShipMenuListener implements Listener {
 
         if (newlyLoaded > 0) {
             player.sendMessage(Component.text(
-                    "Заряжено " + newlyLoaded + " пушек. Готово: " + afterReady + "/" + cannons.size())
+                    "Перезаряжено " + afterReady + "/" + cannons.size() + " пушек.")
                     .color(NamedTextColor.GREEN));
         } else if (afterReady > 0) {
             player.sendMessage(Component.text(
-                    "Пушки уже заряжены. Готово: " + afterReady + "/" + cannons.size())
+                    "Перезаряжено " + afterReady + "/" + cannons.size() + " пушек (уже были заряжены).")
                     .color(NamedTextColor.YELLOW));
         } else {
             player.sendMessage(Component.text(
-                    "Не удалось зарядить (нет боеприпасов в сундуках?).")
+                    "Перезаряжено 0/" + cannons.size() + " пушек (нет боеприпасов в сундуках?).")
                     .color(NamedTextColor.RED));
         }
     }
@@ -725,9 +737,8 @@ public class ShipMenuListener implements Listener {
     private ItemStack broadsideItem(String coloredLabel, List<Cannon> cannons) {
         if (cannons.isEmpty()) return disabledItem(coloredLabel.replaceAll("§.", ""));
         long ready = cannons.stream().filter(Cannon::isReadyToFire).count();
-        Material mat = ready > 0 ? Material.FIRE_CHARGE : Material.BARRIER;
-        return item(mat, coloredLabel,
-                "Пушек: " + cannons.size() + "  Готово: " + ready,
+        return item(Material.FIRE_CHARGE, coloredLabel,
+                "Пушек: " + cannons.size() + "  Готово: " + ready + "/" + cannons.size(),
                 "Нажмите — залп этим бортом");
     }
 
