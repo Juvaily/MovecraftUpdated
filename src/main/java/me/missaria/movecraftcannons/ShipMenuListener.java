@@ -1,5 +1,11 @@
 package me.missaria.movecraftcannons;
 
+import at.pavlov.cannons.API.CannonsAPI;
+import at.pavlov.cannons.Cannons;
+import at.pavlov.cannons.Enum.InteractAction;
+import at.pavlov.cannons.cannon.Cannon;
+import at.pavlov.cannons.cannon.CannonManager;
+import at.pavlov.cannons.cannon.data.CannonPosition;
 import net.countercraft.movecraft.CruiseDirection;
 import net.countercraft.movecraft.MovecraftLocation;
 import net.countercraft.movecraft.MovecraftRotation;
@@ -27,8 +33,10 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.util.Vector;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -82,12 +90,14 @@ public class ShipMenuListener implements Listener {
     /*
      * Layout (27 slots = 3×9):
      *
-     *  [RotL] [  N  ] [RotR]  [ ] [Release] [ ] [ ] [ ] [ ]
-     *  [ W  ] [Stop ] [  E ]  [ ] [        ] [ ] [ ] [ ] [ ]
-     *  [  ↑ ] [  S  ] [  ↓ ]  [ ] [        ] [ ] [ ] [ ] [ ]
+     *  [RotL] [  N  ] [RotR]  [ ] [Release] [Reload] [Fire] [ ] [ ]
+     *  [ W  ] [Stop ] [  E ]  [ ] [       ] [      ] [    ] [ ] [ ]
+     *  [  ↑ ] [  S  ] [  ↓ ]  [ ] [       ] [      ] [    ] [ ] [ ]
      *
      * Slots 0-2:  Rotate-L / Cruise-N / Rotate-R
      * Slot  4:    Release
+     * Slot  5:    Reload all cannons from chests
+     * Slot  6:    Fire all cannons
      * Slot  9:    Cruise-W
      * Slot  10:   Cruise Stop
      * Slot  11:   Cruise-E
@@ -125,6 +135,14 @@ public class ShipMenuListener implements Listener {
         setSlot(inv, actions, 4,
                 item(Material.RED_BED, "§4Покинуть судно", "Остановить крейсер и покинуть транспорт"),
                 p -> doRelease(p, craft, releaseSign));
+
+        setSlot(inv, actions, 5,
+                item(Material.GUNPOWDER, "§eЗарядить пушки", "Зарядить все пушки корабля из сундуков"),
+                p -> loadAllCannons(p, craft));
+
+        setSlot(inv, actions, 6,
+                item(Material.FIRE_CHARGE, "§cОгонь!", "Выстрелить из всех готовых пушек"),
+                p -> fireAllCannons(p, craft));
 
         // Row 1: Left / Stop / Right
         setSlot(inv, actions, 9,  relCruiseItem(craft, lft, curDir, "Влево"),
@@ -237,6 +255,75 @@ public class ShipMenuListener implements Listener {
             return Boolean.TRUE.equals(v);
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    // ── Cannon actions ────────────────────────────────────────────────────────
+
+    private List<Cannon> findCannonsOnCraft(PlayerCraft craft) {
+        HitBox hitBox = craft.getHitBox();
+        UUID worldUID = craft.getWorld().getUID();
+        List<Cannon> result = new ArrayList<>();
+        try {
+            ConcurrentHashMap<UUID, Cannon> all = CannonManager.getInstance().getCannonList();
+            for (Cannon cannon : all.values()) {
+                CannonPosition pos = cannon.getCannonPosition();
+                if (!worldUID.equals(pos.getWorld())) continue;
+                Vector offset = pos.getOffset();
+                MovecraftLocation mloc = new MovecraftLocation(
+                        (int) Math.round(offset.getX()),
+                        (int) Math.round(offset.getY()),
+                        (int) Math.round(offset.getZ()));
+                if (hitBox.contains(mloc)) result.add(cannon);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error finding cannons on craft: " + e.getMessage());
+        }
+        return result;
+    }
+
+    private void loadAllCannons(Player player, PlayerCraft craft) {
+        List<Cannon> cannons = findCannonsOnCraft(craft);
+        if (cannons.isEmpty()) {
+            player.sendMessage(Component.text("На этом судне нет пушек.")
+                    .color(NamedTextColor.YELLOW));
+            return;
+        }
+        for (Cannon cannon : cannons) {
+            cannon.reloadFromChests(player.getUniqueId(), false);
+        }
+        player.sendMessage(Component.text("Заряжаем " + cannons.size() + " пушек...")
+                .color(NamedTextColor.GREEN));
+    }
+
+    private void fireAllCannons(Player player, PlayerCraft craft) {
+        List<Cannon> cannons = findCannonsOnCraft(craft);
+        if (cannons.isEmpty()) {
+            player.sendMessage(Component.text("На этом судне нет пушек.")
+                    .color(NamedTextColor.YELLOW));
+            return;
+        }
+        Cannons cannonsPlugin = (Cannons) Bukkit.getPluginManager().getPlugin("Cannons");
+        if (cannonsPlugin == null) {
+            player.sendMessage(Component.text("Плагин Cannons недоступен.")
+                    .color(NamedTextColor.RED));
+            return;
+        }
+        CannonsAPI api = cannonsPlugin.getCannonsAPI();
+        int fired = 0;
+        int notReady = 0;
+        for (Cannon cannon : cannons) {
+            if (!cannon.isReadyToFire()) { notReady++; continue; }
+            api.playerFiring(cannon, player, InteractAction.fireOther);
+            fired++;
+        }
+        if (fired > 0) {
+            player.sendMessage(Component.text("Выстрелено из " + fired + " пушек!")
+                    .color(NamedTextColor.GREEN));
+        }
+        if (notReady > 0) {
+            player.sendMessage(Component.text(notReady + " пушек не готовы к стрельбе.")
+                    .color(NamedTextColor.YELLOW));
         }
     }
 
