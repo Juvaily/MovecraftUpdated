@@ -155,24 +155,13 @@ public class CraftMoveListener implements Listener {
     }
 
     private void refillWaterAt(List<MovecraftLocation> positions, World world) {
+        int waterLevel = plugin.getConfig().getInt("waterLevel", 62);
         for (MovecraftLocation loc : positions) {
+            if (loc.getY() > waterLevel) continue;
             Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
             if (!block.getType().isAir()) continue;
-            if (adjacentToWater(block)) block.setType(Material.WATER);
+            block.setType(Material.WATER);
         }
-    }
-
-    private boolean adjacentToWater(Block b) {
-        return isWater(b.getRelative( 1, 0,  0))
-            || isWater(b.getRelative(-1, 0,  0))
-            || isWater(b.getRelative( 0, 0,  1))
-            || isWater(b.getRelative( 0, 0, -1))
-            || isWater(b.getRelative( 0, 1,  0))
-            || isWater(b.getRelative( 0,-1,  0));
-    }
-
-    private boolean isWater(Block b) {
-        return b.getType() == Material.WATER;
     }
 
     /** Get all cannons from CannonManager's internal map (indexed by UUID). */

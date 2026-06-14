@@ -9,3 +9,13 @@ debug: false
 wasd:
   # Minimum milliseconds between craft translations (controls speed).
   cooldown_ms: 200
+
+# Y-coordinate of the water surface. Air blocks at or below this level
+# in positions vacated by a moving craft will be restored to WATER.
+waterLevel: 62
+
+# Item taken from the pilot's inventory per cannon fired via ship menu.
+# Set material to '' to disable custom ammo consumption.
+ammo:
+  material: GUNPOWDER
+  amount: 1

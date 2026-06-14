@@ -284,6 +284,20 @@ public class ShipMenuListener implements Listener {
         }
     }
 
+    // ── Cannon name translations ──────────────────────────────────────────────
+
+    private static final Map<String, String> CANNON_NAMES = new java.util.HashMap<>();
+    static {
+        CANNON_NAMES.put("standard",  "Стандарт");
+        CANNON_NAMES.put("carronade", "Карронада");
+        CANNON_NAMES.put("mortar",    "Мортира");
+    }
+
+    private String cannonDisplayName(String designId) {
+        String ru = CANNON_NAMES.get(designId.toLowerCase());
+        return ru != null ? ru : designId;
+    }
+
     // ── Cannon actions ────────────────────────────────────────────────────────
 
     private List<Cannon> findCannonsOnCraft(PlayerCraft craft) {
@@ -305,86 +319,115 @@ public class ShipMenuListener implements Listener {
         }
     }
 
+    private CannonsAPI getCannonsAPI() {
+        Cannons c = (Cannons) Bukkit.getPluginManager().getPlugin("Cannons");
+        return c != null ? c.getCannonsAPI() : null;
+    }
+
+    /** Take ammo from player inventory. Returns number of shots the player can afford. */
+    private int consumeAmmo(Player player, int shots) {
+        String matName = plugin.getConfig().getString("ammo.material", "GUNPOWDER");
+        if (matName == null || matName.isEmpty()) return shots; // disabled
+        Material mat = Material.matchMaterial(matName);
+        if (mat == null) return shots;
+
+        int amountPer = plugin.getConfig().getInt("ammo.amount", 1);
+        int needed    = shots * amountPer;
+        int have      = player.getInventory().all(mat).values().stream()
+                              .mapToInt(ItemStack::getAmount).sum();
+
+        int canFire = Math.min(shots, have / amountPer);
+        if (canFire <= 0) {
+            player.sendMessage(Component.text(
+                    "Нет боеприпасов (" + matName + " × " + amountPer + " за выстрел).")
+                    .color(NamedTextColor.RED));
+            return 0;
+        }
+        if (canFire < shots) {
+            player.sendMessage(Component.text(
+                    "Боеприпасов хватит только на " + canFire + " из " + shots + " пушек.")
+                    .color(NamedTextColor.YELLOW));
+        }
+        player.getInventory().removeItem(new ItemStack(mat, canFire * amountPer));
+        return canFire;
+    }
+
+    private void doFire(CannonsAPI api, Player player, List<Cannon> ready) {
+        for (Cannon cannon : ready) {
+            api.playerFiring(cannon, player, InteractAction.fireRightClickTrigger);
+        }
+    }
+
     private void loadAllCannons(Player player, PlayerCraft craft) {
         List<Cannon> cannons = findCannonsOnCraft(craft);
         if (cannons.isEmpty()) {
-            player.sendMessage(Component.text("На этом судне нет пушек.")
-                    .color(NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("На этом судне нет пушек.").color(NamedTextColor.YELLOW));
             return;
         }
-        for (Cannon cannon : cannons) {
-            cannon.reloadFromChests(player.getUniqueId(), false);
-        }
-        player.sendMessage(Component.text("Заряжаем " + cannons.size() + " пушек...")
-                .color(NamedTextColor.GREEN));
+        for (Cannon cannon : cannons) cannon.reloadFromChests(player.getUniqueId(), false);
+        player.sendMessage(Component.text("Заряжаем " + cannons.size() + " пушек...").color(NamedTextColor.GREEN));
     }
 
     private void fireCannonGroup(Player player, List<Cannon> group) {
-        Cannons cannonsPlugin = (Cannons) Bukkit.getPluginManager().getPlugin("Cannons");
-        if (cannonsPlugin == null) return;
-        CannonsAPI api = cannonsPlugin.getCannonsAPI();
-        int fired = 0;
-        for (Cannon cannon : group) {
-            if (!cannon.isReadyToFire()) continue;
-            api.playerFiring(cannon, player, InteractAction.fireOther);
-            fired++;
+        CannonsAPI api = getCannonsAPI();
+        if (api == null) return;
+
+        List<Cannon> ready = group.stream().filter(Cannon::isReadyToFire).toList();
+        String label = group.isEmpty() ? "?" : cannonDisplayName(group.get(0).getCannonDesign().getDesignID());
+
+        if (ready.isEmpty()) {
+            player.sendMessage(Component.text("Пушки «" + label + "» не готовы.").color(NamedTextColor.YELLOW));
+            return;
         }
-        String name = group.isEmpty() ? "?" : group.get(0).getCannonDesign().getDesignID();
-        if (fired > 0) {
-            player.sendMessage(Component.text("Выстрелено из " + fired + " пушек «" + name + "»!")
-                    .color(NamedTextColor.GREEN));
-        } else {
-            player.sendMessage(Component.text("Пушки «" + name + "» не готовы к стрельбе.")
-                    .color(NamedTextColor.YELLOW));
-        }
+        int canFire = consumeAmmo(player, ready.size());
+        if (canFire <= 0) return;
+
+        doFire(api, player, ready.subList(0, canFire));
+        player.sendMessage(Component.text("Выстрелено из " + canFire + " пушек «" + label + "»!").color(NamedTextColor.GREEN));
     }
 
     private void fireAllCannons(Player player, PlayerCraft craft) {
-        List<Cannon> cannons = findCannonsOnCraft(craft);
-        if (cannons.isEmpty()) {
-            player.sendMessage(Component.text("На этом судне нет пушек.")
-                    .color(NamedTextColor.YELLOW));
+        CannonsAPI api = getCannonsAPI();
+        if (api == null) {
+            player.sendMessage(Component.text("Плагин Cannons недоступен.").color(NamedTextColor.RED));
             return;
         }
-        Cannons cannonsPlugin = (Cannons) Bukkit.getPluginManager().getPlugin("Cannons");
-        if (cannonsPlugin == null) {
-            player.sendMessage(Component.text("Плагин Cannons недоступен.")
-                    .color(NamedTextColor.RED));
+        List<Cannon> all = findCannonsOnCraft(craft);
+        if (all.isEmpty()) {
+            player.sendMessage(Component.text("На этом судне нет пушек.").color(NamedTextColor.YELLOW));
             return;
         }
-        CannonsAPI api = cannonsPlugin.getCannonsAPI();
-        int fired = 0;
-        int notReady = 0;
-        for (Cannon cannon : cannons) {
-            if (!cannon.isReadyToFire()) { notReady++; continue; }
-            api.playerFiring(cannon, player, InteractAction.fireOther);
-            fired++;
+        List<Cannon> ready = all.stream().filter(Cannon::isReadyToFire).toList();
+        int notReady = all.size() - ready.size();
+
+        if (ready.isEmpty()) {
+            player.sendMessage(Component.text("Нет готовых к стрельбе пушек.").color(NamedTextColor.YELLOW));
+            return;
         }
-        if (fired > 0) {
-            player.sendMessage(Component.text("Выстрелено из " + fired + " пушек!")
-                    .color(NamedTextColor.GREEN));
-        }
-        if (notReady > 0) {
-            player.sendMessage(Component.text(notReady + " пушек не готовы к стрельбе.")
-                    .color(NamedTextColor.YELLOW));
-        }
+        int canFire = consumeAmmo(player, ready.size());
+        if (canFire <= 0) return;
+
+        doFire(api, player, ready.subList(0, canFire));
+        player.sendMessage(Component.text("Выстрелено из " + canFire + " пушек!").color(NamedTextColor.GREEN));
+        if (notReady > 0)
+            player.sendMessage(Component.text(notReady + " пушек не готовы.").color(NamedTextColor.YELLOW));
     }
 
     // ── Item builders ─────────────────────────────────────────────────────────
 
     private ItemStack cannonTypeItem(String designId, int total, int ready) {
+        String label = cannonDisplayName(designId);
         ItemStack is;
         ItemMeta m;
         if (ready > 0) {
             is = new ItemStack(Material.TNT);
             m = is.getItemMeta();
-            m.displayName(Component.text(designId).color(NamedTextColor.RED)
+            m.displayName(Component.text(label).color(NamedTextColor.RED)
                     .decoration(TextDecoration.ITALIC, false));
         } else {
-            // BARRIER icon with 🧨 in name — visually merges both concepts
             is = new ItemStack(Material.BARRIER);
             m = is.getItemMeta();
-            m.displayName(Component.text("🧨 " + designId).color(NamedTextColor.DARK_GRAY)
+            m.displayName(Component.text("🧨 " + label).color(NamedTextColor.DARK_GRAY)
                     .decoration(TextDecoration.ITALIC, false));
         }
         m.lore(List.of(
