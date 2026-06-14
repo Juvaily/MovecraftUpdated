@@ -5,13 +5,14 @@ import at.pavlov.cannons.Cannons;
 import at.pavlov.cannons.Enum.InteractAction;
 import at.pavlov.cannons.cannon.Cannon;
 import at.pavlov.cannons.cannon.CannonManager;
-import at.pavlov.cannons.cannon.data.CannonPosition;
 import net.countercraft.movecraft.CruiseDirection;
 import net.countercraft.movecraft.MovecraftLocation;
 import net.countercraft.movecraft.MovecraftRotation;
+
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
+import org.bukkit.Location;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -33,7 +34,6 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.util.Vector;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -43,6 +43,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.util.HashSet;
 
 public class ShipMenuListener implements Listener {
 
@@ -262,24 +263,20 @@ public class ShipMenuListener implements Listener {
 
     private List<Cannon> findCannonsOnCraft(PlayerCraft craft) {
         HitBox hitBox = craft.getHitBox();
-        UUID worldUID = craft.getWorld().getUID();
-        List<Cannon> result = new ArrayList<>();
+        double cx = (hitBox.getMinX() + hitBox.getMaxX()) / 2.0;
+        double cy = (hitBox.getMinY() + hitBox.getMaxY()) / 2.0;
+        double cz = (hitBox.getMinZ() + hitBox.getMaxZ()) / 2.0;
+        double dx = (hitBox.getMaxX() - hitBox.getMinX()) / 2.0 + 1;
+        double dy = (hitBox.getMaxY() - hitBox.getMinY()) / 2.0 + 1;
+        double dz = (hitBox.getMaxZ() - hitBox.getMinZ()) / 2.0 + 1;
+        Location center = new Location(craft.getWorld(), cx, cy, cz);
         try {
-            ConcurrentHashMap<UUID, Cannon> all = CannonManager.getInstance().getCannonList();
-            for (Cannon cannon : all.values()) {
-                CannonPosition pos = cannon.getCannonPosition();
-                if (!worldUID.equals(pos.getWorld())) continue;
-                Vector offset = pos.getOffset();
-                MovecraftLocation mloc = new MovecraftLocation(
-                        (int) Math.round(offset.getX()),
-                        (int) Math.round(offset.getY()),
-                        (int) Math.round(offset.getZ()));
-                if (hitBox.contains(mloc)) result.add(cannon);
-            }
+            HashSet<Cannon> found = CannonManager.getCannonsInBox(center, dx, dy, dz);
+            return found != null ? new ArrayList<>(found) : List.of();
         } catch (Exception e) {
             plugin.getLogger().warning("Error finding cannons on craft: " + e.getMessage());
+            return List.of();
         }
-        return result;
     }
 
     private void loadAllCannons(Player player, PlayerCraft craft) {

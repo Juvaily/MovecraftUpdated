@@ -374,8 +374,19 @@ public class HealthBarListener implements Listener {
         // 1. Custom name from craft YAML takes priority
         String n = entry.getName();
         if (n != null && !n.isBlank()) {
-            String ru = ENTRY_NAMES.get(n.trim().toLowerCase());
-            return ru != null ? ru : n;
+            String key = n.trim().toLowerCase();
+            // Check ENTRY_NAMES for known English labels
+            String ru = ENTRY_NAMES.get(key);
+            if (ru != null) return ru;
+            // Name might be a material key like "coal_block" — try to resolve it
+            try {
+                Material m = Material.matchMaterial(key);
+                if (m != null) {
+                    String ruMat = RU_NAMES.get(m);
+                    if (ruMat != null) return ruMat;
+                }
+            } catch (Exception ignored) {}
+            return n;
         }
 
         // 2. Single-material entries: use RU_NAMES for a precise Russian name
