@@ -67,7 +67,7 @@ public class ShipMenuListener implements Listener {
 
     // ── Open menu: right-click BOOK while piloting ─────────────────────────────
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGH)
     public void onBookClick(PlayerInteractEvent event) {
         if (event.getAction() != Action.RIGHT_CLICK_AIR
                 && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
@@ -128,9 +128,15 @@ public class ShipMenuListener implements Listener {
         Consumer<Player>[] actions = new Consumer[27];
         CruiseDirection curDir = craft.getCruising() ? craft.getCruiseDirection() : CruiseDirection.NONE;
 
-        // Relative directions based on pilot's current yaw
-        CruiseDirection[] rel = relDirs(player.getLocation().getYaw());
-        CruiseDirection fwd  = rel[0], bwd = rel[1], lft = rel[2], rgt = rel[3];
+        // Directions relative to the ship's hull (bow/stern/port/starboard)
+        BlockFace shipFwd  = getShipForward(craft);
+        BlockFace shipBwd  = shipFwd.getOppositeFace();
+        BlockFace shipPort = rotateLeft(shipFwd);
+        BlockFace shipStbd = rotateRight(shipFwd);
+        CruiseDirection fwd = faceToCruiseDir(shipFwd);
+        CruiseDirection bwd = faceToCruiseDir(shipBwd);
+        CruiseDirection lft = faceToCruiseDir(shipPort);
+        CruiseDirection rgt = faceToCruiseDir(shipStbd);
 
         // Row 0: RotL / Forward / RotR  |  _ / Release / _
         setSlot(inv, actions, 0,
@@ -494,19 +500,9 @@ public class ShipMenuListener implements Listener {
         long afterReady = cannons.stream().filter(Cannon::isReadyToFire).count();
         long newlyLoaded = Math.max(0, afterReady - beforeReady);
 
-        if (newlyLoaded > 0) {
-            player.sendMessage(Component.text(
-                    "Перезаряжено " + afterReady + "/" + cannons.size() + " пушек.")
-                    .color(NamedTextColor.GREEN));
-        } else if (afterReady > 0) {
-            player.sendMessage(Component.text(
-                    "Перезаряжено " + afterReady + "/" + cannons.size() + " пушек (уже были заряжены).")
-                    .color(NamedTextColor.YELLOW));
-        } else {
-            player.sendMessage(Component.text(
-                    "Перезаряжено 0/" + cannons.size() + " пушек (нет боеприпасов в сундуках?).")
-                    .color(NamedTextColor.RED));
-        }
+        player.sendMessage(Component.text(
+                "Перезаряжено " + afterReady + "/" + cannons.size() + " пушек.")
+                .color(afterReady > 0 ? NamedTextColor.GREEN : NamedTextColor.RED));
     }
 
     private void fireCannonGroup(Player player, PlayerCraft craft, List<Cannon> group) {
@@ -717,6 +713,55 @@ public class ShipMenuListener implements Listener {
         return left == 0;
     }
 
+    // ── Ship orientation ──────────────────────────────────────────────────────
+
+    private BlockFace getShipForward(PlayerCraft craft) {
+        try {
+            CruiseDirection cd = craft.getCruiseDirection();
+            if (cd != null && cd != CruiseDirection.NONE
+                    && cd != CruiseDirection.UP && cd != CruiseDirection.DOWN) {
+                BlockFace f = cruiseDirToFace(cd);
+                if (f != null) return f;
+            }
+        } catch (Exception ignored) {}
+        Block sign = findCraftSign(craft);
+        if (sign != null) {
+            BlockFace sf = getSignFace(sign);
+            if (sf != BlockFace.UP && sf != BlockFace.DOWN && sf != BlockFace.SELF) return sf;
+        }
+        return BlockFace.SOUTH;
+    }
+
+    private BlockFace rotateLeft(BlockFace face) {
+        return switch (face) {
+            case NORTH -> BlockFace.WEST;
+            case WEST  -> BlockFace.SOUTH;
+            case SOUTH -> BlockFace.EAST;
+            case EAST  -> BlockFace.NORTH;
+            default    -> face;
+        };
+    }
+
+    private BlockFace rotateRight(BlockFace face) {
+        return switch (face) {
+            case NORTH -> BlockFace.EAST;
+            case EAST  -> BlockFace.SOUTH;
+            case SOUTH -> BlockFace.WEST;
+            case WEST  -> BlockFace.NORTH;
+            default    -> face;
+        };
+    }
+
+    private CruiseDirection faceToCruiseDir(BlockFace face) {
+        return switch (face) {
+            case NORTH -> CruiseDirection.NORTH;
+            case SOUTH -> CruiseDirection.SOUTH;
+            case EAST  -> CruiseDirection.EAST;
+            case WEST  -> CruiseDirection.WEST;
+            default    -> CruiseDirection.NONE;
+        };
+    }
+
     // ── Broadside helpers ─────────────────────────────────────────────────────
 
     private BlockFace cruiseDirToFace(CruiseDirection dir) {
@@ -737,7 +782,7 @@ public class ShipMenuListener implements Listener {
     private ItemStack broadsideItem(String coloredLabel, List<Cannon> cannons) {
         if (cannons.isEmpty()) return disabledItem(coloredLabel.replaceAll("§.", ""));
         long ready = cannons.stream().filter(Cannon::isReadyToFire).count();
-        return item(Material.FIRE_CHARGE, coloredLabel,
+        return item(Material.TNT, coloredLabel,
                 "Пушек: " + cannons.size() + "  Готово: " + ready + "/" + cannons.size(),
                 "Нажмите — залп этим бортом");
     }

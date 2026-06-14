@@ -186,24 +186,29 @@ public class WasdListener implements Listener {
         if (to == null) return;
 
         double dx = to.getX() - from.getX();
+        double dy = to.getY() - from.getY();
         double dz = to.getZ() - from.getZ();
-        if (Math.abs(dx) < MOVE_THRESHOLD && Math.abs(dz) < MOVE_THRESHOLD) return;
+        if (Math.abs(dx) < MOVE_THRESHOLD && Math.abs(dy) < MOVE_THRESHOLD && Math.abs(dz) < MOVE_THRESHOLD) return;
 
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
         if (craft == null || !craft.getPilotLocked()) return;
 
-        int[] dir = resolveDir(player.getLocation().getYaw(), dx, dz);
-        if (dir[0] == 0 && dir[1] == 0) return;
-
-        UUID uid = player.getUniqueId();
-        latestDir.put(uid, dir);
-        latestTime.put(uid, System.currentTimeMillis());
-
+        // Always anchor the pilot — cancel all movement (including jumping/falling)
         Location pushBack = from.clone();
         pushBack.setYaw(to.getYaw());
         pushBack.setPitch(to.getPitch());
         event.setTo(pushBack);
+
+        // Ship movement from horizontal input only
+        if (Math.abs(dx) >= MOVE_THRESHOLD || Math.abs(dz) >= MOVE_THRESHOLD) {
+            int[] dir = resolveDir(player.getLocation().getYaw(), dx, dz);
+            if (dir[0] != 0 || dir[1] != 0) {
+                UUID uid = player.getUniqueId();
+                latestDir.put(uid, dir);
+                latestTime.put(uid, System.currentTimeMillis());
+            }
+        }
     }
 
     // ── Periodic movement tick ─────────────────────────────────────────────────
