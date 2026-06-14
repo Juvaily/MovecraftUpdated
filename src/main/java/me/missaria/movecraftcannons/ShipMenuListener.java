@@ -102,7 +102,7 @@ public class ShipMenuListener implements Listener {
      *
      *  [RotL] [ Fwd ] [RotR]  [  ] [Release] [Reload] [FireAll] [Repair] [Blueprint]
      *  [  W ] [Stop ] [  E ]  [  ] [Type1  ] [Type2 ] [Type3  ] [Type4 ] [Type5    ]
-     *  [  ↑ ] [  S  ] [  ↓ ]  [  ] [← Port ] [→ Stbd] [↑ Bow  ] [↓ Stern] [      ]
+     *  [  ↑ ] [Корма] [  ↓ ]  [  ] [↑ Нос  ] [↓ Корм] [→ Пр.б.] [← Лев.б][      ]
      *
      * Slots 0-2:   Rotate-L / Cruise-fwd / Rotate-R
      * Slot  4:     Release
@@ -143,7 +143,7 @@ public class ShipMenuListener implements Listener {
                 item(Material.SPECTRAL_ARROW, "§e↺ Поворот влево",  "Повернуть против часовой стрелки"),
                 p -> rotateCraft(p, craft, MovecraftRotation.ANTICLOCKWISE));
 
-        setSlot(inv, actions, 1, relCruiseItem(craft, fwd, curDir, "Вперёд"),
+        setSlot(inv, actions, 1, relCruiseItem(craft, fwd, curDir, "Нос"),
                 p -> setCruise(p, craft, fwd));
 
         setSlot(inv, actions, 2,
@@ -152,7 +152,7 @@ public class ShipMenuListener implements Listener {
 
         Block releaseSign = findSign(craft, "Release");
         setSlot(inv, actions, 4,
-                item(Material.RED_BED, "§4Покинуть судно", "Остановить крейсер и покинуть транспорт"),
+                item(Material.RED_BED, "§4Покинуть судно", "Остановить круиз и покинуть транспорт"),
                 p -> doRelease(p, craft, releaseSign));
 
         setSlot(inv, actions, 5,
@@ -183,12 +183,12 @@ public class ShipMenuListener implements Listener {
                 p -> saveBlueprint(p, craft));
 
         // Row 1: Left / Stop / Right
-        setSlot(inv, actions, 9,  relCruiseItem(craft, lft, curDir, "Влево"),
+        setSlot(inv, actions, 9,  relCruiseItem(craft, lft, curDir, "Левый"),
                 p -> setCruise(p, craft, lft));
         setSlot(inv, actions, 10,
-                item(Material.BARRIER, "§cОстановить крейсер", "Отключить крейсерский режим"),
+                item(Material.BARRIER, "§cОстановить круиз", "Отключить круиз"),
                 p -> stopCruise(craft));
-        setSlot(inv, actions, 11, relCruiseItem(craft, rgt, curDir, "Вправо"),
+        setSlot(inv, actions, 11, relCruiseItem(craft, rgt, curDir, "Правый"),
                 p -> setCruise(p, craft, rgt));
 
         // Row 2: Up / Backward / Down
@@ -202,7 +202,7 @@ public class ShipMenuListener implements Listener {
             setSlot(inv, actions, 18, disabledItem("Вверх недоступно"), null);
             setSlot(inv, actions, 20, disabledItem("Вниз недоступно"),  null);
         }
-        setSlot(inv, actions, 19, relCruiseItem(craft, bwd, curDir, "Назад"),
+        setSlot(inv, actions, 19, relCruiseItem(craft, bwd, curDir, "Корма"),
                 p -> setCruise(p, craft, bwd));
 
         // Cannon data: types + broadside groupings
@@ -222,15 +222,15 @@ public class ShipMenuListener implements Listener {
         List<Cannon> bwdCannons = allCannons.stream()
                 .filter(c -> bwdFace != null && bwdFace == safeGetDir(c)).toList();
 
-        // Row 2, cols 4-7: Port / Starboard / Bow / Stern
-        setSlot(inv, actions, 22, broadsideItem("§c← Левый борт", portCannons),
-                portCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, portCannons));
-        setSlot(inv, actions, 23, broadsideItem("§a→ Правый борт", stbdCannons),
-                stbdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, stbdCannons));
-        setSlot(inv, actions, 24, broadsideItem("§e↑ Носовые", fwdCannons),
+        // Row 2, cols 4-7: Bow / Stern / Starboard / Port
+        setSlot(inv, actions, 22, broadsideItem("§e↑ Носовые", fwdCannons),
                 fwdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, fwdCannons));
-        setSlot(inv, actions, 25, broadsideItem("§6↓ Кормовые", bwdCannons),
+        setSlot(inv, actions, 23, broadsideItem("§6↓ Кормовые", bwdCannons),
                 bwdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, bwdCannons));
+        setSlot(inv, actions, 24, broadsideItem("§a→ Правый борт", stbdCannons),
+                stbdCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, stbdCannons));
+        setSlot(inv, actions, 25, broadsideItem("§c← Левый борт", portCannons),
+                portCannons.isEmpty() ? null : p -> fireCannonGroup(p, craft, portCannons));
 
         // Cannon type buttons: group by designID, fill slots 13-17 (row 1)
         Map<String, List<Cannon>> byType = new LinkedHashMap<>();
@@ -848,7 +848,7 @@ public class ShipMenuListener implements Listener {
             default   -> Material.ARROW;
         };
         String prefix = on ? "§a▶ " : "§7";
-        String lore   = on ? "§aКрейсер АКТИВЕН" : "§7Нажмите для крейсера";
+        String lore   = on ? "§aКруиз АКТИВЕН" : "§7Нажмите для круиза";
         return item(mat, prefix + relLabel, lore);
     }
 
