@@ -355,17 +355,23 @@ public class HealthBarListener implements Listener {
             return n;
         }
 
-        // 2. Single-material entries: use RU_NAMES
+        // 2. Single-material entries: check lang file first, then RU_NAMES
         try {
             var mats = new ArrayList<>(entry.getMaterials());
             if (mats.size() == 1) {
                 Material m = (Material) mats.get(0);
+                String matKey = "health.mat." + m.name().toLowerCase();
+                String localized = Lang.get(matKey);
+                if (!localized.equals(matKey)) return localized;
                 String ru = RU_NAMES.get(m);
                 if (ru != null) return ru;
                 return m.name().replace('_', ' ').toLowerCase();
             }
             if (!mats.isEmpty()) {
                 Material m = (Material) mats.get(0);
+                String matKey = "health.mat." + m.name().toLowerCase();
+                String localized = Lang.get(matKey);
+                if (!localized.equals(matKey)) return localized;
                 return m.name().replace('_', ' ').toLowerCase();
             }
         } catch (Exception ignored) {}

@@ -5,6 +5,10 @@
 # Set to true to log every cannon position update to console.
 debug: false
 
+# Server-wide language for health bars and other non-player displays.
+# Supported: ru, uk
+language: ru
+
 # WASD control: move the craft by pressing movement keys while piloting.
 wasd:
   # Minimum milliseconds between craft translations (controls speed).

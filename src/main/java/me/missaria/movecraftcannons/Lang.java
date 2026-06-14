@@ -15,8 +15,10 @@ public class Lang {
 
     private static final Map<String, YamlConfiguration> locales = new HashMap<>();
     private static final String DEFAULT = "ru";
+    private static String serverLang = DEFAULT;
 
     public static void load(Plugin plugin) {
+        serverLang = plugin.getConfig().getString("language", DEFAULT);
         for (String code : List.of("ru", "uk")) {
             plugin.saveResource("lang/" + code + ".yml", false);
             File f = new File(plugin.getDataFolder(), "lang/" + code + ".yml");
@@ -24,25 +26,24 @@ public class Lang {
         }
     }
 
-    /** Translated string for the player's locale; falls back to ru; returns key if missing. */
+    /** Translated string for the player's locale; falls back to server lang then ru. */
     public static String get(String key, Player player, Object... args) {
         String lang = langOf(player);
-        YamlConfiguration cfg = locales.get(lang);
-        String val = cfg != null ? cfg.getString(key) : null;
-        if (val == null) {
-            YamlConfiguration def = locales.get(DEFAULT);
-            val = def != null ? def.getString(key) : null;
-        }
-        if (val == null) return key;
-        return format(val, args);
+        String val = lookup(lang, key);
+        if (val == null) val = lookup(DEFAULT, key);
+        return format(val != null ? val : key, args);
     }
 
-    /** Translated string using default (ru) locale. */
+    /** Translated string using server-configured language (for TextDisplay etc.); falls back to ru. */
     public static String get(String key, Object... args) {
-        YamlConfiguration def = locales.get(DEFAULT);
-        String val = def != null ? def.getString(key) : null;
-        if (val == null) return key;
-        return format(val, args);
+        String val = lookup(serverLang, key);
+        if (val == null && !serverLang.equals(DEFAULT)) val = lookup(DEFAULT, key);
+        return format(val != null ? val : key, args);
+    }
+
+    private static String lookup(String lang, String key) {
+        YamlConfiguration cfg = locales.get(lang);
+        return cfg != null ? cfg.getString(key) : null;
     }
 
     /** Shortcut: colored Component for a player. */
