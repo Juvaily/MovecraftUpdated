@@ -503,7 +503,10 @@ public class ShipMenuListener implements Listener {
             player.sendMessage(Lang.msg("msg.no_cannons", player, NamedTextColor.YELLOW));
             return;
         }
-        for (Cannon cannon : cannons) cannon.reloadFromChests(player.getUniqueId(), true);
+        for (Cannon cannon : cannons) {
+            cannon.reloadFromChests(player.getUniqueId(), true);
+            if (!cannon.isReadyToFire()) cannon.reloadFromChests(player.getUniqueId(), true);
+        }
         long afterReady = cannons.stream().filter(Cannon::isReadyToFire).count();
         player.sendMessage(Lang.msg("msg.reloaded", player,
                 afterReady > 0 ? NamedTextColor.GREEN : NamedTextColor.RED,

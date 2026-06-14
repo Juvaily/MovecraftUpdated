@@ -31,10 +31,10 @@ menu.stop.lore:         "Отключить круиз"
 menu.disabled.lore:     "Недоступно для этого транспорта"
 
 # ── Broadside buttons ─────────────────────────────────────────────────────────
-menu.port.name:         "§c← Левые"
-menu.starboard.name:    "§a→ Правые"
-menu.bow_guns.name:     "§e↑ Передние"
-menu.stern_guns.name:   "§6↓ Задние"
+menu.port.name:         "§c← Левые пушки"
+menu.starboard.name:    "§a→ Правые пушки"
+menu.bow_guns.name:     "§e↑ Передние пушки"
+menu.stern_guns.name:   "§6↓ Задние пушки"
 menu.broadside.stats:   "Пушек: {0}  Готово: {1}/{2}"
 menu.broadside.fire:    "Нажмите — залп этим бортом"
 
@@ -45,7 +45,7 @@ menu.cruise.inactive:   "§7Нажмите для круиза"
 # ── Cannon type buttons ───────────────────────────────────────────────────────
 menu.cannon.fire_lore:  "Нажмите — выстрелить"
 menu.cannon.stats:      "Пушек: {0}  Готово: {1}"
-cannon.standard:        "Стандарт"
+cannon.standard:        "Стандартная пушка"
 cannon.carronade:       "Карронада"
 cannon.mortar:          "Мортира"
 

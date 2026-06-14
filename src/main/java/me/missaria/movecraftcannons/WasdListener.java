@@ -45,15 +45,12 @@ public class WasdListener implements Listener {
     private final Map<UUID, Float>    savedWalkSpeed   = new ConcurrentHashMap<>();
     private final Map<UUID, Float>    savedFlySpeed    = new ConcurrentHashMap<>();
 
-    // DC extras: scoreboard + treadmill anchor
+    // DC extras: scoreboard
     private final Map<UUID, Scoreboard> dcScoreboards = new ConcurrentHashMap<>();
-    private final Map<UUID, Location>   pilotAnchor   = new ConcurrentHashMap<>();
 
     private static final long   ROTATE_DEBOUNCE = 600L;
     private static final float  PILOT_SPEED     = 0.005f;
     private static final double MOVE_THRESHOLD  = 0.001;
-    private static final double DC_DRIFT_MAX    = 0.5;   // snap-back threshold (blocks)
-    private static final double DC_DRIFT_RESET  = 0.1;   // position after snap-back (blocks from anchor)
 
     public WasdListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
@@ -93,9 +90,6 @@ public class WasdListener implements Listener {
                         false,  // no particles for others
                         false)); // no icon
 
-                // Save treadmill anchor
-                pilotAnchor.put(uid, player.getLocation().clone());
-
                 // Scoreboard sidebar
                 String shipName = craftName(craft);
                 Scoreboard sb = buildDcScoreboard(player, shipName);
@@ -129,7 +123,6 @@ public class WasdListener implements Listener {
 
         latestDir.remove(uid);
         latestTime.remove(uid);
-        pilotAnchor.remove(uid);
 
         // Restore DC extras
         player.setInvulnerable(false);
@@ -159,9 +152,7 @@ public class WasdListener implements Listener {
     public void onCraftTranslateDC(CraftTranslateEvent event) {
         if (!(event.getCraft() instanceof net.countercraft.movecraft.craft.PilotedCraft pc)) return;
         Player pilot = pc.getPilot();
-        if (pilot == null) return;
-        UUID uid = pilot.getUniqueId();
-        if (!savedAllowFlight.containsKey(uid)) return;
+        if (pilot == null || !savedAllowFlight.containsKey(pilot.getUniqueId())) return;
 
         HitBox oldBox = event.getOldHitBox();
         HitBox newBox = event.getNewHitBox();
@@ -169,17 +160,8 @@ public class WasdListener implements Listener {
         int dz = newBox.getMinZ() - oldBox.getMinZ();
         if (dx == 0 && dz == 0) return;
 
-        // Compute new anchor before scheduling (anchor update is deferred with teleport)
-        Location anchor = pilotAnchor.get(uid);
-        Location newAnchor = anchor != null
-                ? new Location(anchor.getWorld(), anchor.getX() + dx, anchor.getY(), anchor.getZ() + dz)
-                : null;
-
         Location cur = pilot.getLocation().clone();
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            pilot.teleport(cur.add(dx, 0, dz));
-            if (newAnchor != null) pilotAnchor.put(uid, newAnchor);
-        });
+        Bukkit.getScheduler().runTask(plugin, () -> pilot.teleport(cur.add(dx, 0, dz)));
     }
 
     // ── WASD direction capture ─────────────────────────────────────────────────
@@ -193,51 +175,24 @@ public class WasdListener implements Listener {
         if (to == null) return;
 
         double dx = to.getX() - from.getX();
-        double dy = to.getY() - from.getY();
         double dz = to.getZ() - from.getZ();
-        if (Math.abs(dx) < MOVE_THRESHOLD && Math.abs(dy) < MOVE_THRESHOLD && Math.abs(dz) < MOVE_THRESHOLD) return;
+        if (Math.abs(dx) < MOVE_THRESHOLD && Math.abs(dz) < MOVE_THRESHOLD) return;
 
         Player      player = event.getPlayer();
         PlayerCraft craft  = CraftManager.getInstance().getCraftByPlayer(player);
         if (craft == null || !craft.getPilotLocked()) return;
 
+        int[] dir = resolveDir(player.getLocation().getYaw(), dx, dz);
+        if (dir[0] == 0 && dir[1] == 0) return;
+
         UUID uid = player.getUniqueId();
+        latestDir.put(uid, dir);
+        latestTime.put(uid, System.currentTimeMillis());
 
-        // Capture ship direction from horizontal input
-        if (Math.abs(dx) >= MOVE_THRESHOLD || Math.abs(dz) >= MOVE_THRESHOLD) {
-            int[] dir = resolveDir(player.getLocation().getYaw(), dx, dz);
-            if (dir[0] != 0 || dir[1] != 0) {
-                latestDir.put(uid, dir);
-                latestTime.put(uid, System.currentTimeMillis());
-            }
-        }
-
-        // Treadmill: allow drift up to DC_DRIFT_MAX from anchor, then snap back to DC_DRIFT_RESET
-        Location anchor = pilotAnchor.get(uid);
-        if (anchor != null) {
-            double devX = to.getX() - anchor.getX();
-            double devZ = to.getZ() - anchor.getZ();
-            double dist = Math.hypot(devX, devZ);
-            if (dist > DC_DRIFT_MAX) {
-                double scale = DC_DRIFT_RESET / dist;
-                event.setTo(new Location(to.getWorld(),
-                        anchor.getX() + devX * scale,
-                        anchor.getY(),
-                        anchor.getZ() + devZ * scale,
-                        to.getYaw(), to.getPitch()));
-            } else if (Math.abs(dy) >= MOVE_THRESHOLD) {
-                // Lock Y to anchor to prevent vertical drift
-                event.setTo(new Location(to.getWorld(),
-                        to.getX(), anchor.getY(), to.getZ(),
-                        to.getYaw(), to.getPitch()));
-            }
-        } else {
-            // No anchor: full pushback
-            Location pb = from.clone();
-            pb.setYaw(to.getYaw());
-            pb.setPitch(to.getPitch());
-            event.setTo(pb);
-        }
+        Location pushBack = from.clone();
+        pushBack.setYaw(to.getYaw());
+        pushBack.setPitch(to.getPitch());
+        event.setTo(pushBack);
     }
 
     // ── Periodic movement tick ─────────────────────────────────────────────────

@@ -97,7 +97,8 @@ public class HealthBarListener implements Listener {
             e.setPersistent(false);
             e.setViewRange(1.5f);
             e.setTransformation(SCALE);
-            e.text(buildText(craft, sc, origB, entries, origE, fEntries, origF));
+            Player pilot0 = craft instanceof net.countercraft.movecraft.craft.PlayerCraft pc0 ? pc0.getPilot() : null;
+            e.text(buildText(pilot0, craft, sc, origB, entries, origE, fEntries, origF));
         });
 
         displays.put(uid, disp);
@@ -111,11 +112,13 @@ public class HealthBarListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onSink(CraftSinkEvent event) {
-        UUID uid = event.getCraft().getUUID();
+        Craft sinkCraft = event.getCraft();
+        UUID uid = sinkCraft.getUUID();
         TextDisplay disp = displays.get(uid);
         if (disp != null) {
-            disp.text(Component.text(Lang.get("health.sinking"), NamedTextColor.RED)
-                    .decoration(TextDecoration.BOLD, true));
+            Player pilot = sinkCraft instanceof net.countercraft.movecraft.craft.PlayerCraft pc ? pc.getPilot() : null;
+            String msg = pilot != null ? Lang.get("health.sinking", pilot) : Lang.get("health.sinking");
+            disp.text(Component.text(msg, NamedTextColor.RED).decoration(TextDecoration.BOLD, true));
         }
         Bukkit.getScheduler().runTaskLater(plugin, () -> remove(uid), 100L);
     }
@@ -160,13 +163,15 @@ public class HealthBarListener implements Listener {
         TextDisplay disp = displays.get(uid);
         if (craft == null || disp == null || !disp.isValid()) return;
 
+        Player pilot = craft instanceof net.countercraft.movecraft.craft.PlayerCraft pc ? pc.getPilot() : null;
+
         List<RequiredBlockEntry> entries  = moveEntries.getOrDefault(uid, List.of());
         List<RequiredBlockEntry> fEntries = flyEntries.getOrDefault(uid, List.of());
         int[] sc    = scan(craft, entries, fEntries);
         int   orig  = origBlockCount.getOrDefault(uid, sc[0]);
         int[] origE = origEntryCount.getOrDefault(uid, new int[0]);
         int[] origF = origFlyCount.getOrDefault(uid, new int[0]);
-        disp.text(buildText(craft, sc, orig, entries, origE, fEntries, origF));
+        disp.text(buildText(pilot, craft, sc, orig, entries, origE, fEntries, origF));
     }
 
     private void remove(UUID uid) {
@@ -261,7 +266,7 @@ public class HealthBarListener implements Listener {
 
     // ── Text ─────────────────────────────────────────────────────────────────
 
-    private Component buildText(Craft craft, int[] sc, int orig,
+    private Component buildText(Player pilot, Craft craft, int[] sc, int orig,
                                 List<RequiredBlockEntry> entries, int[] origE,
                                 List<RequiredBlockEntry> fEntries, int[] origF) {
         int curr = sc[0];
@@ -301,7 +306,7 @@ public class HealthBarListener implements Listener {
             double ePct = origEntry > 0 ? Math.max(0.0, (double) currE / origEntry * 100.0) : 100.0;
 
             text.appendNewline()
-                .append(Component.text("⚙ " + entryLabel(entry) + ": ").color(NamedTextColor.GRAY))
+                .append(Component.text("⚙ " + entryLabel(pilot, entry) + ": ").color(NamedTextColor.GRAY))
                 .append(Component.text(String.format("%.0f%%", ePct)).color(mc))
                 .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
         }
@@ -320,15 +325,16 @@ public class HealthBarListener implements Listener {
             double ePct = Math.max(0.0, (double) currE / origEntry * 100.0);
 
             text.appendNewline()
-                .append(Component.text("🧱 " + entryLabel(entry) + ": ").color(NamedTextColor.GRAY))
+                .append(Component.text("🧱 " + entryLabel(pilot, entry) + ": ").color(NamedTextColor.GRAY))
                 .append(Component.text(String.format("%.0f%%", ePct)).color(mc))
                 .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
         }
 
         // Fire indicator
         if (sc[1] == 1) {
+            String fireMsg = pilot != null ? Lang.get("health.fire", pilot) : Lang.get("health.fire");
             text.appendNewline()
-                .append(Component.text(Lang.get("health.fire"))
+                .append(Component.text(fireMsg)
                         .color(NamedTextColor.RED)
                         .decoration(TextDecoration.BOLD, true));
         }
@@ -336,47 +342,41 @@ public class HealthBarListener implements Listener {
         return text.build();
     }
 
-    /** Label for a moveblock/flyblock entry: lang file → RU_NAMES (single material) → fallback. */
-    private String entryLabel(RequiredBlockEntry entry) {
+    /** Label for a moveblock/flyblock entry: lang file → RU_NAMES → fallback. */
+    private String entryLabel(Player pilot, RequiredBlockEntry entry) {
         // 1. Custom name from craft YAML takes priority
         String n = entry.getName();
         if (n != null && !n.isBlank()) {
             String key = "health.entry." + n.trim().toLowerCase();
-            String localized = Lang.get(key);
-            if (!localized.equals(key)) return localized; // found in lang file
-            // Might be a material key like "coal_block"
+            String localized = pilot != null ? Lang.get(key, pilot) : Lang.get(key);
+            if (!localized.equals(key)) return localized;
             try {
                 Material m = Material.matchMaterial(n.trim().toLowerCase());
                 if (m != null) {
-                    String ruMat = RU_NAMES.get(m);
-                    if (ruMat != null) return ruMat;
+                    String ru = RU_NAMES.get(m);
+                    if (ru != null) return ru;
                 }
             } catch (Exception ignored) {}
             return n;
         }
 
-        // 2. Single-material entries: check lang file first, then RU_NAMES
+        // 2. Single-material entries: check lang file, then RU_NAMES
         try {
             var mats = new ArrayList<>(entry.getMaterials());
-            if (mats.size() == 1) {
-                Material m = (Material) mats.get(0);
-                String matKey = "health.mat." + m.name().toLowerCase();
-                String localized = Lang.get(matKey);
-                if (!localized.equals(matKey)) return localized;
-                String ru = RU_NAMES.get(m);
-                if (ru != null) return ru;
-                return m.name().replace('_', ' ').toLowerCase();
-            }
             if (!mats.isEmpty()) {
                 Material m = (Material) mats.get(0);
                 String matKey = "health.mat." + m.name().toLowerCase();
-                String localized = Lang.get(matKey);
+                String localized = pilot != null ? Lang.get(matKey, pilot) : Lang.get(matKey);
                 if (!localized.equals(matKey)) return localized;
+                if (mats.size() == 1) {
+                    String ru = RU_NAMES.get(m);
+                    if (ru != null) return ru;
+                }
                 return m.name().replace('_', ' ').toLowerCase();
             }
         } catch (Exception ignored) {}
 
-        return Lang.get("health.entry.block");
+        return pilot != null ? Lang.get("health.entry.block", pilot) : Lang.get("health.entry.block");
     }
 
     private String craftTitle(Craft craft) {

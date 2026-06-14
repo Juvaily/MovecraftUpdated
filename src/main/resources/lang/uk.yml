@@ -31,10 +31,10 @@ menu.stop.lore:         "Вимкнути круїз"
 menu.disabled.lore:     "Недоступно для цього транспорту"
 
 # ── Broadside buttons ─────────────────────────────────────────────────────────
-menu.port.name:         "§c← Ліві"
-menu.starboard.name:    "§a→ Праві"
-menu.bow_guns.name:     "§e↑ Передні"
-menu.stern_guns.name:   "§6↓ Задні"
+menu.port.name:         "§c← Ліві гармати"
+menu.starboard.name:    "§a→ Праві гармати"
+menu.bow_guns.name:     "§e↑ Передні гармати"
+menu.stern_guns.name:   "§6↓ Задні гармати"
 menu.broadside.stats:   "Гармат: {0}  Готово: {1}/{2}"
 menu.broadside.fire:    "Натисніть — залп цим бортом"
 
@@ -45,7 +45,7 @@ menu.cruise.inactive:   "§7Натисніть для круїзу"
 # ── Cannon type buttons ───────────────────────────────────────────────────────
 menu.cannon.fire_lore:  "Натисніть — вистрілити"
 menu.cannon.stats:      "Гармат: {0}  Готово: {1}"
-cannon.standard:        "Стандарт"
+cannon.standard:        "Стандартна гармата"
 cannon.carronade:       "Каронада"
 cannon.mortar:          "Мортира"
 
