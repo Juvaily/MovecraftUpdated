@@ -4,7 +4,7 @@ import at.pavlov.cannons.cannon.Cannon;
 import at.pavlov.cannons.cannon.CannonManager;
 import at.pavlov.cannons.cannon.data.CannonPosition;
 import net.countercraft.movecraft.craft.Craft;
-import net.countercraft.movecraft.events.CraftReleaseEvent;
+import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftSinkEvent;
 import net.countercraft.movecraft.events.CraftTranslateEvent;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
@@ -21,12 +21,16 @@ import org.bukkit.util.Vector;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class CraftMoveListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
+
+    // Positions at Y≤waterLevel recorded on craft detect, used for delayed water restore.
+    private final Map<UUID, List<MovecraftLocation>> spawnWaterPos = new ConcurrentHashMap<>();
 
     public CraftMoveListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
@@ -38,16 +42,8 @@ public class CraftMoveListener implements Listener {
      * Cannons can't find the cannon at the new block location → creates a fresh
      * cannon with zeroed reload/ammo/temperature state.
      *
-     * WHY getCannonsByLocations() was wrong: it calls Block.getBlock() + isCannonBlock()
-     * (material check). If cannon design materials overlap with ship materials, or if the
-     * cannon block isn't the trigger block at the expected position, it returns empty.
-     *
      * FIX: iterate all cannons via getCannonList() and match by stored offset position
-     * (UUID world + Vector) against the old hitbox. This is a pure data check — no
-     * physical block access — and works regardless of cannon material or design layout.
-     *
-     * CraftTranslateEvent fires BEFORE blocks physically move (TranslationTask fires
-     * the event, then submits CraftTranslateCommand which does the actual block move),
+     * against the old hitbox. CraftTranslateEvent fires BEFORE blocks physically move,
      * so the old hitbox positions are still valid for lookup.
      */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
@@ -72,12 +68,8 @@ public class CraftMoveListener implements Listener {
         for (Cannon cannon : allCannons) {
             try {
                 CannonPosition pos = cannon.getCannonPosition();
-
-                // World check — skip cannons in other worlds
                 if (!worldUID.equals(pos.getWorld())) continue;
 
-                // Check if cannon's stored offset is inside the old hitbox.
-                // This is a pure coordinate check — no physical block access needed.
                 Vector offset = pos.getOffset();
                 MovecraftLocation mloc = new MovecraftLocation(
                         (int) Math.round(offset.getX()),
@@ -86,18 +78,13 @@ public class CraftMoveListener implements Listener {
                 );
                 if (!oldBox.contains(mloc)) continue;
 
-                // Update stored position. CannonManager is keyed by UUID,
-                // so setOffset() is sufficient — no remove/re-add needed.
                 pos.setOffset(offset.clone().add(translation));
                 cannon.setUpdated(true);
                 updated++;
 
                 if (plugin.isDebug()) {
                     plugin.getLogger().info("[debug] Cannon '" + cannon.getCannonDesign().getDesignID()
-                            + "' moved by (" + dx + "," + dy + "," + dz + ")"
-                            + " to (" + Math.round(offset.getX() + dx)
-                            + "," + Math.round(offset.getY() + dy)
-                            + "," + Math.round(offset.getZ() + dz) + ")");
+                            + "' moved by (" + dx + "," + dy + "," + dz + ")");
                 }
             } catch (Exception e) {
                 plugin.getLogger().warning("Error updating cannon position: " + e.getMessage());
@@ -111,53 +98,47 @@ public class CraftMoveListener implements Listener {
 
     // ── Water fill ────────────────────────────────────────────────────────────
 
-    // CraftTranslateEvent fires BEFORE blocks move. We collect vacated positions
-    // here, then restore water in the next tick (after Movecraft moves the blocks).
+    // On detect: save the sub-waterline positions of the ship's spawn footprint.
+    // After 5 minutes the ship has likely moved, so fill those positions with water.
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onCraftTranslateWater(CraftTranslateEvent event) {
-        HitBox oldBox = event.getOldHitBox();
-        HitBox newBox = event.getNewHitBox();
-        World world = event.getCraft().getWorld();
-
-        List<MovecraftLocation> vacated = new ArrayList<>();
-        for (MovecraftLocation loc : oldBox) {
-            if (!newBox.contains(loc)) vacated.add(loc);
-        }
-        if (vacated.isEmpty()) return;
-
-        Bukkit.getScheduler().runTask(plugin, () -> refillWaterAt(vacated, world));
-    }
-
-    // On release, fill any air holes left in the craft's last footprint.
-    // Scheduled 1 tick to run after Movecraft actually deregisters the craft.
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onCraftRelease(CraftReleaseEvent event) {
+    public void onCraftDetect(CraftDetectEvent event) {
         Craft craft = event.getCraft();
-        List<MovecraftLocation> positions = snapshotHitbox(craft);
+        List<MovecraftLocation> list = waterPositions(craft);
+        if (list.isEmpty()) return;
+
+        UUID uid = craft.getUUID();
         World world = craft.getWorld();
-        Bukkit.getScheduler().runTask(plugin, () -> refillWaterAt(positions, world));
+        spawnWaterPos.put(uid, list);
+
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            refillWaterAt(spawnWaterPos.getOrDefault(uid, list), world);
+            spawnWaterPos.remove(uid);
+        }, 20L * 60 * 5); // 5 minutes
     }
 
-    // Sinking is a series of downward translates, but schedule a final cleanup
-    // after the sink settles (40 ticks ≈ 2 s) to catch any remaining gaps.
+    // On sink: fill the crash position after 5 minutes; cancel the spawn fill.
     @EventHandler(priority = EventPriority.MONITOR)
     public void onCraftSink(CraftSinkEvent event) {
         Craft craft = event.getCraft();
-        List<MovecraftLocation> positions = snapshotHitbox(craft);
+        List<MovecraftLocation> list = waterPositions(craft);
+        spawnWaterPos.remove(craft.getUUID()); // spawn fill no longer relevant
+        if (list.isEmpty()) return;
+
         World world = craft.getWorld();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> refillWaterAt(positions, world), 40L);
+        Bukkit.getScheduler().runTaskLater(plugin, () -> refillWaterAt(list, world), 20L * 60 * 5);
     }
 
-    private List<MovecraftLocation> snapshotHitbox(Craft craft) {
+    private List<MovecraftLocation> waterPositions(Craft craft) {
+        int waterLevel = plugin.getConfig().getInt("waterLevel", 62);
         List<MovecraftLocation> list = new ArrayList<>();
-        for (MovecraftLocation loc : craft.getHitBox()) list.add(loc);
+        for (MovecraftLocation loc : craft.getHitBox()) {
+            if (loc.getY() <= waterLevel) list.add(loc);
+        }
         return list;
     }
 
     private void refillWaterAt(List<MovecraftLocation> positions, World world) {
-        int waterLevel = plugin.getConfig().getInt("waterLevel", 62);
         for (MovecraftLocation loc : positions) {
-            if (loc.getY() > waterLevel) continue;
             Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
             if (!block.getType().isAir()) continue;
             block.setType(Material.WATER);

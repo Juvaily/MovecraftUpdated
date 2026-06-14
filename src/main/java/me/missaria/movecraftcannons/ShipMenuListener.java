@@ -34,6 +34,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.World;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -92,22 +93,23 @@ public class ShipMenuListener implements Listener {
     /*
      * Layout (27 slots = 3×9):
      *
-     *  [RotL] [  N  ] [RotR]  [ ] [Release] [Reload] [FireAll] [  ] [  ]
-     *  [ W  ] [Stop ] [  E ]  [ ] [TypeA  ] [TypeB ] [TypeC  ] [TypeD] [TypeE]
-     *  [  ↑ ] [  S  ] [  ↓ ]  [ ] [TypeF  ] [TypeG ] [TypeH  ] [TypeI] [TypeJ]
+     *  [RotL] [  N  ] [RotR]  [ ] [Release] [Reload] [FireAll] [Repair] [  ]
+     *  [ W  ] [Stop ] [  E ]  [ ] [TypeA  ] [TypeB ] [TypeC  ] [TypeD ] [TypeE]
+     *  [  ↑ ] [  S  ] [  ↓ ]  [ ] [TypeF  ] [TypeG ] [TypeH  ] [TypeI ] [TypeJ]
      *
      * Slots 0-2:   Rotate-L / Cruise-N / Rotate-R
      * Slot  4:     Release
      * Slot  5:     Reload all cannons from chests
      * Slot  6:     Fire all cannons
-     * Slots 12-17: Cannon type buttons (row 1, right side) — up to 5 types
+     * Slot  7:     Repair (via Repair: sign on craft)
      * Slot  9:     Cruise-W
      * Slot  10:    Cruise Stop
      * Slot  11:    Cruise-E
-     * Slots 21-26: Cannon type buttons (row 2, right side) — types 6-10
+     * Slots 13-17: Cannon type buttons (row 1) — up to 5 types
      * Slot  18:    Cruise Up
      * Slot  19:    Cruise S
      * Slot  20:    Cruise Down
+     * Slots 22-26: Cannon type buttons (row 2) — types 6-10
      */
     @SuppressWarnings("unchecked")
     private void openMenu(Player player, PlayerCraft craft) {
@@ -147,6 +149,15 @@ public class ShipMenuListener implements Listener {
         setSlot(inv, actions, 6,
                 item(Material.FIRE_CHARGE, "§cОгонь!", "Выстрелить из всех готовых пушек"),
                 p -> fireAllCannons(p, craft));
+
+        Block repairSign = findSign(craft, "Repair:");
+        if (repairSign != null) {
+            setSlot(inv, actions, 7,
+                    item(Material.ANVIL, "§aРемонт", "Отремонтировать судно из материалов в сундуках"),
+                    p -> simulateClick(p, repairSign));
+        } else {
+            setSlot(inv, actions, 7, disabledItem("Нет знака [Repair:]"), null);
+        }
 
         // Row 1: Left / Stop / Right
         setSlot(inv, actions, 9,  relCruiseItem(craft, lft, curDir, "Влево"),
@@ -192,7 +203,7 @@ public class ShipMenuListener implements Listener {
             long ready = group.stream().filter(Cannon::isReadyToFire).count();
             setSlot(inv, actions, typeSlots[si],
                     cannonTypeItem(designId, group.size(), (int) ready),
-                    p -> fireCannonGroup(p, group));
+                    p -> fireCannonGroup(p, craft, group));
             si++;
         }
 
@@ -288,6 +299,7 @@ public class ShipMenuListener implements Listener {
 
     private static final Map<String, String> CANNON_NAMES = new java.util.HashMap<>();
     static {
+        CANNON_NAMES.put("cannon",    "Стандарт");
         CANNON_NAMES.put("standard",  "Стандарт");
         CANNON_NAMES.put("carronade", "Карронада");
         CANNON_NAMES.put("mortar",    "Мортира");
@@ -324,36 +336,57 @@ public class ShipMenuListener implements Listener {
         return c != null ? c.getCannonsAPI() : null;
     }
 
-    /** Take ammo from player inventory. Returns number of shots the player can afford. */
-    private int consumeAmmo(Player player, int shots) {
+    /** Collect all InventoryHolder blocks (chests, barrels…) in the craft's hitbox. */
+    private List<org.bukkit.inventory.Inventory> findShipChests(PlayerCraft craft) {
+        List<org.bukkit.inventory.Inventory> result = new ArrayList<>();
+        World world = craft.getWorld();
+        for (MovecraftLocation loc : craft.getHitBox()) {
+            Block b = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
+            if (b.getState() instanceof InventoryHolder h) result.add(h.getInventory());
+        }
+        return result;
+    }
+
+    /**
+     * Take ammo from ship chests. Returns how many cannons can actually fire
+     * (may be less than requested if chests don't have enough ammo).
+     */
+    private int consumeAmmoFromChests(Player player, PlayerCraft craft, int shots) {
         String matName = plugin.getConfig().getString("ammo.material", "GUNPOWDER");
-        if (matName == null || matName.isEmpty()) return shots; // disabled
+        if (matName == null || matName.isEmpty()) return shots;
         Material mat = Material.matchMaterial(matName);
         if (mat == null) return shots;
-
         int amountPer = plugin.getConfig().getInt("ammo.amount", 1);
-        int needed    = shots * amountPer;
-        int have      = player.getInventory().all(mat).values().stream()
-                              .mapToInt(ItemStack::getAmount).sum();
+
+        List<org.bukkit.inventory.Inventory> chests = findShipChests(craft);
+        int have = chests.stream()
+                .flatMap(inv -> inv.all(mat).values().stream())
+                .mapToInt(ItemStack::getAmount).sum();
 
         int canFire = Math.min(shots, have / amountPer);
         if (canFire <= 0) {
             player.sendMessage(Component.text(
-                    "Нет боеприпасов (" + matName + " × " + amountPer + " за выстрел).")
+                    "В сундуках нет боеприпасов (" + matName + " × " + amountPer + "/выстрел).")
                     .color(NamedTextColor.RED));
             return 0;
         }
         if (canFire < shots) {
             player.sendMessage(Component.text(
-                    "Боеприпасов хватит только на " + canFire + " из " + shots + " пушек.")
+                    "Боеприпасов хватит на " + canFire + " из " + shots + " пушек.")
                     .color(NamedTextColor.YELLOW));
         }
-        player.getInventory().removeItem(new ItemStack(mat, canFire * amountPer));
+        // Remove from chests in order
+        int toRemove = canFire * amountPer;
+        for (org.bukkit.inventory.Inventory inv : chests) {
+            if (toRemove <= 0) break;
+            var leftover = inv.removeItem(new ItemStack(mat, toRemove));
+            toRemove = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
+        }
         return canFire;
     }
 
-    private void doFire(CannonsAPI api, Player player, List<Cannon> ready) {
-        for (Cannon cannon : ready) {
+    private void doFire(CannonsAPI api, Player player, List<Cannon> cannons) {
+        for (Cannon cannon : cannons) {
             api.playerFiring(cannon, player, InteractAction.fireRightClickTigger);
         }
     }
@@ -364,24 +397,37 @@ public class ShipMenuListener implements Listener {
             player.sendMessage(Component.text("На этом судне нет пушек.").color(NamedTextColor.YELLOW));
             return;
         }
-        for (Cannon cannon : cannons) cannon.reloadFromChests(player.getUniqueId(), false);
-        player.sendMessage(Component.text("Заряжаем " + cannons.size() + " пушек...").color(NamedTextColor.GREEN));
+        long beforeReady = cannons.stream().filter(Cannon::isReadyToFire).count();
+        for (Cannon cannon : cannons) cannon.reloadFromChests(player.getUniqueId(), true);
+        long afterReady = cannons.stream().filter(Cannon::isReadyToFire).count();
+        long newlyLoaded = Math.max(0, afterReady - beforeReady);
+
+        if (newlyLoaded > 0) {
+            player.sendMessage(Component.text(
+                    "Заряжено " + newlyLoaded + " пушек. Готово: " + afterReady + "/" + cannons.size())
+                    .color(NamedTextColor.GREEN));
+        } else if (afterReady > 0) {
+            player.sendMessage(Component.text(
+                    "Пушки уже заряжены. Готово: " + afterReady + "/" + cannons.size())
+                    .color(NamedTextColor.YELLOW));
+        } else {
+            player.sendMessage(Component.text(
+                    "Не удалось зарядить (нет боеприпасов в сундуках?).")
+                    .color(NamedTextColor.RED));
+        }
     }
 
-    private void fireCannonGroup(Player player, List<Cannon> group) {
+    private void fireCannonGroup(Player player, PlayerCraft craft, List<Cannon> group) {
         CannonsAPI api = getCannonsAPI();
         if (api == null) return;
-
-        List<Cannon> ready = group.stream().filter(Cannon::isReadyToFire).toList();
         String label = group.isEmpty() ? "?" : cannonDisplayName(group.get(0).getCannonDesign().getDesignID());
-
+        List<Cannon> ready = group.stream().filter(Cannon::isReadyToFire).toList();
         if (ready.isEmpty()) {
             player.sendMessage(Component.text("Пушки «" + label + "» не готовы.").color(NamedTextColor.YELLOW));
             return;
         }
-        int canFire = consumeAmmo(player, ready.size());
+        int canFire = consumeAmmoFromChests(player, craft, ready.size());
         if (canFire <= 0) return;
-
         doFire(api, player, ready.subList(0, canFire));
         player.sendMessage(Component.text("Выстрелено из " + canFire + " пушек «" + label + "»!").color(NamedTextColor.GREEN));
     }
@@ -399,14 +445,12 @@ public class ShipMenuListener implements Listener {
         }
         List<Cannon> ready = all.stream().filter(Cannon::isReadyToFire).toList();
         int notReady = all.size() - ready.size();
-
         if (ready.isEmpty()) {
             player.sendMessage(Component.text("Нет готовых к стрельбе пушек.").color(NamedTextColor.YELLOW));
             return;
         }
-        int canFire = consumeAmmo(player, ready.size());
+        int canFire = consumeAmmoFromChests(player, craft, ready.size());
         if (canFire <= 0) return;
-
         doFire(api, player, ready.subList(0, canFire));
         player.sendMessage(Component.text("Выстрелено из " + canFire + " пушек!").color(NamedTextColor.GREEN));
         if (notReady > 0)
