@@ -1,9 +1,7 @@
 package me.missaria.movecraftcannons;
 
 import at.pavlov.cannons.cannon.Cannon;
-import at.pavlov.cannons.cannon.CannonDesign;
 import at.pavlov.cannons.cannon.CannonManager;
-import at.pavlov.cannons.cannon.DesignStorage;
 import net.countercraft.movecraft.MovecraftLocation;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
@@ -19,12 +17,12 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 public final class CannonUtils {
@@ -34,121 +32,99 @@ public final class CannonUtils {
     // ── Find cannons on a craft ───────────────────────────────────────────────
 
     /**
-     * Returns all Cannons whose stored world position falls inside the craft's hitbox.
-     * Filters the full CannonManager list by exact block coordinate — more accurate
-     * than getCannonsInBox which uses a loose bounding box.
+     * Returns all Cannons on the craft by passing every hitbox block location to
+     * CannonManager.getCannonsByLocations() — the same lookup Cannons' own Movecraft
+     * hook uses, so it correctly handles fractional offsets, etc.
      */
     public static List<Cannon> findCannonsOnCraft(PlayerCraft craft) {
+        World world = craft.getWorld();
         HitBox hitBox = craft.getHitBox();
-        UUID worldUID = craft.getWorld().getUID();
-        List<Cannon> result = new ArrayList<>();
+        List<Location> locations = new ArrayList<>(hitBox.size());
+        for (MovecraftLocation loc : hitBox) {
+            locations.add(new Location(world, loc.getX(), loc.getY(), loc.getZ()));
+        }
         try {
-            ConcurrentHashMap<UUID, Cannon> all = CannonManager.getInstance().getCannonList();
-            for (Cannon cannon : all.values()) {
-                try {
-                    if (!worldUID.equals(cannon.getCannonPosition().getWorld())) continue;
-                    Vector off = cannon.getCannonPosition().getOffset();
-                    MovecraftLocation mloc = new MovecraftLocation(
-                            (int) Math.round(off.getX()),
-                            (int) Math.round(off.getY()),
-                            (int) Math.round(off.getZ()));
-                    if (hitBox.contains(mloc)) result.add(cannon);
-                } catch (Exception ignored) {}
-            }
+            HashSet<Cannon> found = CannonManager.getInstance().getCannonsByLocations(locations);
+            return found != null ? new ArrayList<>(found) : new ArrayList<>();
         } catch (Exception e) {
             Logger.getLogger("MovecraftCannons").warning("CannonUtils.findCannonsOnCraft: " + e.getMessage());
+            return new ArrayList<>();
         }
-        return result;
     }
 
-    // ── Auto-create cannons via PlayerInteractEvent simulation ────────────────
+    // ── Auto-create cannons by clicking every cannon block ────────────────────
 
     /**
-     * Scans the craft's hitbox for blocks matching any cannon design's rotation-center
-     * material. For each unregistered match, simulates a PlayerInteractEvent so that
-     * Cannons' own PlayerListener detects and creates the cannon — no manual clicking.
+     * Scans the craft's hitbox for any block whose material is part of a cannon design
+     * (via CannonManager.isCannonBlockMaterial), then simulates a PlayerInteractEvent
+     * right-click on each one. Cannons' own PlayerListener detects complete designs and
+     * creates the cannon entity — no manual clicking required.
+     *
+     * Blocks where a cannon is already registered are skipped.
      */
     public static void autoCreateCannons(PlayerCraft craft, Player pilot, Logger log) {
         if (pilot == null) return;
         World world = craft.getWorld();
         HitBox hitBox = craft.getHitBox();
+        CannonManager mgr = CannonManager.getInstance();
 
-        DesignStorage storage;
-        try { storage = DesignStorage.getInstance(); }
-        catch (Exception e) { return; }
+        // Collect positions of already-registered cannons (skip those)
+        Set<String> existing = existingPositionKeys(craft.getWorld().getUID(), world, hitBox);
 
-        List<?> designs;
-        try { designs = storage.getCannonDesignList(); }
-        catch (Exception e) { return; }
+        int clicked = 0;
+        for (MovecraftLocation loc : hitBox) {
+            Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
+            if (block.getType().isAir()) continue;
 
-        // Positions already registered so we skip them
-        UUID worldUID = world.getUID();
-        List<Location> registered = registeredPositions(worldUID, world);
+            // Only right-click blocks that are part of some cannon design
+            try {
+                if (!mgr.isCannonBlockMaterial(block.getType())) continue;
+            } catch (Exception ignored) { continue; }
 
-        for (Object obj : designs) {
-            if (!(obj instanceof CannonDesign design)) continue;
+            // Skip already-existing cannon positions
+            String key = loc.getX() + "," + loc.getY() + "," + loc.getZ();
+            if (existing.contains(key)) continue;
 
-            // Try rotation center, then right-click trigger as fallback
-            Material mat = blockMaterial(design, true);
-            if (mat == null) mat = blockMaterial(design, false);
-            if (mat == null) continue;
-
-            for (MovecraftLocation loc : hitBox) {
-                Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
-                if (block.getType() != mat) continue;
-                Location bLoc = block.getLocation();
-                if (alreadyRegistered(registered, bLoc)) continue;
-
-                // Simulate right-click: Cannons' PlayerListener handles creation
-                try {
-                    PlayerInteractEvent fake = new PlayerInteractEvent(
-                            pilot,
-                            Action.RIGHT_CLICK_BLOCK,
-                            new ItemStack(Material.AIR),
-                            block,
-                            BlockFace.UP,
-                            EquipmentSlot.HAND);
-                    fake.setUseItemInHand(Event.Result.DENY);
-                    Bukkit.getPluginManager().callEvent(fake);
-                    registered.add(bLoc); // prevent duplicate events for same block
-                } catch (Exception ignored) {}
-            }
+            // Simulate right-click: Cannons PlayerListener creates the cannon if
+            // the surrounding blocks complete a known design pattern
+            try {
+                PlayerInteractEvent fake = new PlayerInteractEvent(
+                        pilot,
+                        Action.RIGHT_CLICK_BLOCK,
+                        new ItemStack(Material.AIR),
+                        block,
+                        BlockFace.UP,
+                        EquipmentSlot.HAND);
+                fake.setUseItemInHand(Event.Result.DENY);
+                Bukkit.getPluginManager().callEvent(fake);
+                clicked++;
+            } catch (Exception ignored) {}
         }
+
+        if (clicked > 0)
+            log.info("[MovecraftCannons] Sent " + clicked + " cannon-block click(s) for auto-detection.");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static List<Location> registeredPositions(UUID worldUID, World world) {
-        List<Location> result = new ArrayList<>();
+    private static Set<String> existingPositionKeys(UUID worldUID, World world, HitBox hitBox) {
+        Set<String> keys = new HashSet<>();
         try {
-            for (Cannon c : CannonManager.getInstance().getCannonList().values()) {
+            List<Location> locations = new ArrayList<>(hitBox.size());
+            for (MovecraftLocation loc : hitBox) {
+                locations.add(new Location(world, loc.getX(), loc.getY(), loc.getZ()));
+            }
+            HashSet<Cannon> existing = CannonManager.getInstance().getCannonsByLocations(locations);
+            if (existing == null) return keys;
+            for (Cannon c : existing) {
                 try {
-                    if (!worldUID.equals(c.getCannonPosition().getWorld())) continue;
-                    Vector o = c.getCannonPosition().getOffset();
-                    result.add(new Location(world, o.getX(), o.getY(), o.getZ()));
+                    var off = c.getCannonPosition().getOffset();
+                    keys.add((int) Math.round(off.getX()) + ","
+                            + (int) Math.round(off.getY()) + ","
+                            + (int) Math.round(off.getZ()));
                 } catch (Exception ignored) {}
             }
         } catch (Exception ignored) {}
-        return result;
-    }
-
-    /** Get material from rotation center (useRotation=true) or right-click trigger. */
-    private static Material blockMaterial(CannonDesign design, boolean useRotation) {
-        try {
-            Object raw = useRotation
-                    ? design.getSchematicBlockTypeRotationCenter()
-                    : design.getIngameBlockTypeRightClickTrigger();
-            if (raw instanceof Material m) return m;
-            if (raw instanceof org.bukkit.block.data.BlockData bd) return bd.getMaterial();
-        } catch (Exception ignored) {}
-        return null;
-    }
-
-    private static boolean alreadyRegistered(List<Location> registered, Location loc) {
-        int bx = loc.getBlockX(), by = loc.getBlockY(), bz = loc.getBlockZ();
-        for (Location r : registered) {
-            if (r.getBlockX() == bx && r.getBlockY() == by && r.getBlockZ() == bz) return true;
-        }
-        return false;
+        return keys;
     }
 }
