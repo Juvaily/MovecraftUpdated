@@ -47,8 +47,8 @@ public class WasdListener implements Listener {
 
     // DC extras: scoreboard
     private final Map<UUID, Scoreboard> dcScoreboards  = new ConcurrentHashMap<>();
-    // Wind period at scoreboard build time — used to detect changes and rebuild
-    private final Map<UUID, Integer>    dcWindPeriod   = new ConcurrentHashMap<>();
+    // Wind generation at scoreboard build time — used to detect changes and rebuild
+    private final Map<UUID, Integer>    dcWindGen   = new ConcurrentHashMap<>();
 
     private static final long   ROTATE_DEBOUNCE = 600L;
     private static final float  PILOT_SPEED     = 0.005f;
@@ -97,18 +97,18 @@ public class WasdListener implements Listener {
                 String shipName = craftName(craft);
                 Scoreboard sb = buildDcScoreboard(player, shipName);
                 dcScoreboards.put(uid, sb);
-                dcWindPeriod.put(uid, windManager.getPeriodNumber());
+                dcWindGen.put(uid, windManager.getGeneration());
                 player.setScoreboard(sb);
 
             } else if (!locked && tracked) {
                 restoreFlight(player);
             } else if (locked) {
                 // ── Still in DC — rebuild scoreboard if wind period changed ──
-                Integer sbPeriod = dcWindPeriod.get(uid);
-                if (sbPeriod == null || sbPeriod != windManager.getPeriodNumber()) {
+                Integer sbPeriod = dcWindGen.get(uid);
+                if (sbPeriod == null || sbPeriod != windManager.getGeneration()) {
                     Scoreboard sb = buildDcScoreboard(player, craftName(craft));
                     dcScoreboards.put(uid, sb);
-                    dcWindPeriod.put(uid, windManager.getPeriodNumber());
+                    dcWindGen.put(uid, windManager.getGeneration());
                     player.setScoreboard(sb);
                 }
             }
@@ -136,7 +136,7 @@ public class WasdListener implements Listener {
 
         latestDir.remove(uid);
         latestTime.remove(uid);
-        dcWindPeriod.remove(uid);
+        dcWindGen.remove(uid);
 
         // Restore DC extras
         player.setInvulnerable(false);

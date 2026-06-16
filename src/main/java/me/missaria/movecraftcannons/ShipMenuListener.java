@@ -145,7 +145,7 @@ public class ShipMenuListener implements Listener {
                 p -> rotateCraft(p, craft, MovecraftRotation.ANTICLOCKWISE));
 
         setSlot(inv, actions, 1,
-                relCruiseItem(player, craft, fwd, curDir, Lang.get("menu.nav.bow", player)),
+                relCruiseItem(player, craft, fwd, curDir, cardinalName(fwd, player)),
                 p -> setCruise(p, craft, fwd));
 
         setSlot(inv, actions, 2,
@@ -200,7 +200,7 @@ public class ShipMenuListener implements Listener {
 
         // Row 1: Left / Stop / Right
         setSlot(inv, actions, 9,
-                relCruiseItem(player, craft, lft, curDir, Lang.get("menu.nav.left", player)),
+                relCruiseItem(player, craft, lft, curDir, cardinalName(lft, player)),
                 p -> setCruise(p, craft, lft));
         setSlot(inv, actions, 10,
                 item(Material.BARRIER,
@@ -208,7 +208,7 @@ public class ShipMenuListener implements Listener {
                         Lang.get("menu.stop.lore", player)),
                 p -> stopCruise(craft));
         setSlot(inv, actions, 11,
-                relCruiseItem(player, craft, rgt, curDir, Lang.get("menu.nav.right", player)),
+                relCruiseItem(player, craft, rgt, curDir, cardinalName(rgt, player)),
                 p -> setCruise(p, craft, rgt));
 
         // Row 2: Up / Backward / Down
@@ -225,7 +225,7 @@ public class ShipMenuListener implements Listener {
             setSlot(inv, actions, 20, disabledItem(player, Lang.get("menu.nav.down_disabled", player)), null);
         }
         setSlot(inv, actions, 19,
-                relCruiseItem(player, craft, bwd, curDir, Lang.get("menu.nav.stern", player)),
+                relCruiseItem(player, craft, bwd, curDir, cardinalName(bwd, player)),
                 p -> setCruise(p, craft, bwd));
 
         // Cannon data: types + broadside groupings (player-yaw relative)
@@ -292,35 +292,35 @@ public class ShipMenuListener implements Listener {
     //   [per][bg][bg][ W ][STR][ E ][bg][bg][bg] 36-44
     //   [bg][bg][bg][bg][ S ][bg][bg][bg][bg]   45-53
 
+    //  Compass layout (left-aligned, cols 0-2):
+    //
+    //   [ bg][ N ][ bg][ bg][ bg][ bg][ bg][ bg][ bg]   27-35
+    //   [  W][STR][  E][ bg][ bg][ bg][ bg][ bg][ bg]   36-44
+    //   [ bg][ S ][ bg][ bg][ bg][ bg][ bg][ bg][ bg]   45-53
+    //
+    //  N=28, W=36, STR=37, E=38, S=46
+
     private void buildWindCompass(Inventory inv, Player player) {
         int s = windManager.getStrength();
         WindManager.Direction windDir = s >= 2 ? windManager.getDirection() : null;
 
-        // Fill background
+        // Background — all of rows 3-5 except compass slots
         ItemStack bg = windBgPane();
-        int[] special = {31, 36, 39, 40, 41, 49};
+        int[] special = {28, 36, 37, 38, 46};
         java.util.Set<Integer> skip = new java.util.HashSet<>();
         for (int cs : special) skip.add(cs);
         for (int slot = 27; slot < 54; slot++) {
             if (!skip.contains(slot)) inv.setItem(slot, bg);
         }
 
-        // Period display (slot 36)
-        ItemStack period = new ItemStack(Material.PAPER);
-        ItemMeta pm = period.getItemMeta();
-        pm.displayName(Component.text(Lang.get("menu.wind.period", player, windManager.getPeriodNumber()))
-                .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
-        period.setItemMeta(pm);
-        inv.setItem(36, period);
-
-        // Strength center (slot 40)
-        inv.setItem(40, windStrengthItem(s, player));
+        // Strength center (slot 37)
+        inv.setItem(37, windStrengthItem(s, player));
 
         // Directional indicators
-        placeWindDir(inv, 31, WindManager.Direction.NORTH, windDir, player);
-        placeWindDir(inv, 39, WindManager.Direction.WEST,  windDir, player);
-        placeWindDir(inv, 41, WindManager.Direction.EAST,  windDir, player);
-        placeWindDir(inv, 49, WindManager.Direction.SOUTH, windDir, player);
+        placeWindDir(inv, 28, WindManager.Direction.NORTH, windDir, player);
+        placeWindDir(inv, 36, WindManager.Direction.WEST,  windDir, player);
+        placeWindDir(inv, 38, WindManager.Direction.EAST,  windDir, player);
+        placeWindDir(inv, 46, WindManager.Direction.SOUTH, windDir, player);
     }
 
     private ItemStack windBgPane() {
@@ -341,14 +341,18 @@ public class ShipMenuListener implements Listener {
 
         String name = Lang.get("wind.strength." + strength, player);
         List<Component> lore = new ArrayList<>();
-        if (strength == 0) {
-            lore.add(loreComp(Lang.get("menu.wind.calm_eff", player), NamedTextColor.RED));
-        } else if (strength == 1) {
-            lore.add(loreComp(Lang.get("menu.wind.no_eff", player), NamedTextColor.GRAY));
-        } else {
-            int blocks = strength == 2 ? 2 : 4;
-            lore.add(loreComp(Lang.get("menu.wind.tail", player, blocks), NamedTextColor.GREEN));
-            lore.add(loreComp(Lang.get("menu.wind.head", player, blocks), NamedTextColor.RED));
+        switch (strength) {
+            case 0 -> lore.add(loreComp(Lang.get("menu.wind.calm_eff", player), NamedTextColor.RED));
+            case 1 -> lore.add(loreComp(Lang.get("menu.wind.cross", player, 1), NamedTextColor.GREEN));
+            case 2 -> {
+                lore.add(loreComp(Lang.get("menu.wind.tail",  player, 4), NamedTextColor.GREEN));
+                lore.add(loreComp(Lang.get("menu.wind.cross", player, 2), NamedTextColor.AQUA));
+            }
+            case 3 -> {
+                lore.add(loreComp(Lang.get("menu.wind.tail",  player, 6), NamedTextColor.GREEN));
+                lore.add(loreComp(Lang.get("menu.wind.head",  player, 6), NamedTextColor.RED));
+                lore.add(loreComp(Lang.get("menu.wind.cross", player, 3), NamedTextColor.AQUA));
+            }
         }
 
         ItemStack is = new ItemStack(mat);
@@ -386,6 +390,16 @@ public class ShipMenuListener implements Listener {
 
     private Component loreComp(String text, NamedTextColor color) {
         return Component.text(text).color(color).decoration(TextDecoration.ITALIC, false);
+    }
+
+    private String cardinalName(CruiseDirection dir, Player player) {
+        return switch (dir) {
+            case NORTH -> Lang.get("menu.nav.north", player);
+            case SOUTH -> Lang.get("menu.nav.south", player);
+            case EAST  -> Lang.get("menu.nav.east",  player);
+            case WEST  -> Lang.get("menu.nav.west",  player);
+            default    -> "?";
+        };
     }
 
     // ── Handle clicks ──────────────────────────────────────────────────────────

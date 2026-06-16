@@ -43,12 +43,13 @@ public class WindManager {
         }
     }
 
-    // Periods I–V: weak, strong, calm, strong, storm
-    private static final int[] STRENGTHS = {1, 2, 0, 2, 3};
+    // Ping-pong: calm→weak→strong→storm→strong→weak→calm→...
+    private static final int[] STRENGTHS = {0, 1, 2, 3, 2, 1};
 
     private final MovecraftCannonsPlugin plugin;
     private int period = 0;
     private Direction direction = Direction.random();
+    private int generation = 0; // incremented on every wind change
     // Cache wool-check result per craft type name to avoid re-scanning every tick
     private final Map<String, Boolean> woolCache = new ConcurrentHashMap<>();
 
@@ -62,9 +63,10 @@ public class WindManager {
     // ── Period management ─────────────────────────────────────────────────────
 
     private void advancePeriod() {
-        period = (period + 1) % 5;
+        period = (period + 1) % 6;
         if (getStrength() > 0) direction = Direction.random();
-        String msg = Lang.get("wind.change", getPeriodNumber(), getStrengthDisplay());
+        generation++;
+        String msg = Lang.get("wind.change", getStrengthDisplay());
         Bukkit.getOnlinePlayers().forEach(p -> p.sendMessage(msg));
     }
 
@@ -87,16 +89,21 @@ public class WindManager {
     }
 
     /**
-     * Blocks/sec to add in cruise direction.
-     * Calm → always -1. Weak → 0. Strong/storm → +base tailwind, -base headwind, 0 crosswind.
+     * Blocks/sec to add along cruise direction.
+     * dot=1 tailwind, dot=-1 headwind, dot=0 crosswind.
+     * calm: -2 always; weak: cross+1; strong: tail+4 cross+2; storm: tail+6 head-6 cross+3
      */
     private int computeEffect(int strength, CruiseDirection cruiseDir) {
-        if (strength == 0) return -1;
-        if (strength == 1) return 0;
-        int base = strength == 2 ? 2 : 4;
+        if (strength == 0) return -2;
         int[] wv = direction.vec();
         int[] cv = dirVec(cruiseDir);
-        return base * (wv[0] * cv[0] + wv[1] * cv[1]);
+        int dot = wv[0] * cv[0] + wv[1] * cv[1];
+        return switch (strength) {
+            case 1 -> dot == 0 ? 1 : 0;
+            case 2 -> dot == 1 ? 4 : dot == 0 ? 2 : 0;
+            case 3 -> dot == 1 ? 6 : dot == -1 ? -6 : 3;
+            default -> 0;
+        };
     }
 
     private static int[] dirVec(CruiseDirection dir) {
@@ -140,13 +147,14 @@ public class WindManager {
 
     public int getStrength()        { return STRENGTHS[period]; }
     public Direction getDirection() { return direction; }
-    public int getPeriodNumber()    { return period + 1; }
+    public int getGeneration()      { return generation; }
 
-    /** Admin command: pick a random period and direction, then broadcast. */
+    /** Admin command: pick a random strength/direction, then broadcast. */
     public void randomize() {
-        period = ThreadLocalRandom.current().nextInt(5);
+        period = ThreadLocalRandom.current().nextInt(6);
         if (getStrength() > 0) direction = Direction.random();
-        String msg = Lang.get("wind.change", getPeriodNumber(), getStrengthDisplay());
+        generation++;
+        String msg = Lang.get("wind.change", getStrengthDisplay());
         Bukkit.getOnlinePlayers().forEach(p -> p.sendMessage(msg));
     }
 

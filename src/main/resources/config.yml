@@ -28,7 +28,7 @@ repair:
 # Wind direction is randomised each period (except calm). Ships gain/lose 2-4 blocks/s
 # depending on whether they sail with or against the wind.
 wind:
-  period_duration_minutes: 10
+  period_duration_minutes: 15
 
 # Item taken from the pilot's inventory per cannon fired via ship menu.
 # Set material to '' to disable custom ammo consumption.
