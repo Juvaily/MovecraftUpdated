@@ -347,6 +347,7 @@ public class ShipMenuListener implements Listener {
             case 2 -> {
                 lore.add(loreComp(Lang.get("menu.wind.tail",  player, 4), NamedTextColor.GREEN));
                 lore.add(loreComp(Lang.get("menu.wind.cross", player, 2), NamedTextColor.AQUA));
+                lore.add(loreComp(Lang.get("menu.wind.head",  player, 2), NamedTextColor.RED));
             }
             case 3 -> {
                 lore.add(loreComp(Lang.get("menu.wind.tail",  player, 6), NamedTextColor.GREEN));

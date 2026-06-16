@@ -100,7 +100,7 @@ public class WindManager {
         int dot = wv[0] * cv[0] + wv[1] * cv[1];
         return switch (strength) {
             case 1 -> dot == 0 ? 1 : 0;
-            case 2 -> dot == 1 ? 4 : dot == 0 ? 2 : 0;
+            case 2 -> dot == 1 ? 4 : dot == 0 ? 2 : -2;
             case 3 -> dot == 1 ? 6 : dot == -1 ? -6 : 3;
             default -> 0;
         };
