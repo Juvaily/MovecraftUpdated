@@ -1,0 +1,113 @@
+name: Pram
+maxSize: 5000
+minSize: 1000
+allowedBlocks:
+    - "#planks"
+    - "#wooden_shelves"
+    - "#logs"
+    - "#beds"
+    - "#wool"
+    - "#slabs"
+    - "#stairs"
+    - "#chests"
+    - "#trapdoors"
+    - "#signs"
+    - "#doors"
+    - "#fence_gates"
+    - "#buttons"
+    - "#fences"
+    - "#terracotta"
+    - "#carpets"
+    - "#heads"
+    - "#anvil"
+    - "#pressure_plates"
+    - "#concrete"
+    - "#glass"
+    - dispenser
+    - note_block
+    - iron_block
+    - bookshelf
+    - torch
+    - fire
+    - redstone_wire
+    - crafting_table
+    - furnace
+    - blast_furnace
+    - smoker
+    - ladder
+    - lever
+    - redstone_torch
+    - repeater
+    - enchanting_table
+    - brewing_stand
+    - cauldron
+    - redstone_lamp
+    - ender_chest
+    - tripwire_hook
+    - tripwire
+    - flower_pot
+    - comparator
+    - daylight_detector
+    - hopper
+    - activator_rail
+    - powered_rail
+    - hay_block
+    - tnt
+    - rail
+    - dropper
+    - bell
+    - cartography_table
+    - composter
+    - fletching_table
+    - lantern
+    - lectern
+    - loom
+    - smithing_table
+    - stonecutter
+    - coal_block
+    - gold_block
+
+forbiddenBlocks:
+    - piston_head
+    - dirt
+    - grass_block
+
+passthroughBlocks:
+    - kelp
+    - seagrass
+    - kelp_plant
+    - lily_pad
+    - tall_seagrass
+    - sea_pickle
+    
+canCruise: true
+cruiseSkipBlocks: 1
+cruiseSpeed: 1
+canFly: false
+sinkPercent: 40.0
+overallSinkPercent: 60.0
+staticWaterLevel: 62
+allowVerticalMovement: false
+minHeightLimit: 50
+maxHeightLimit: 80
+requireWaterContact: true
+collisionExplosion: 0.0
+onlyMovePlayers: true
+speed: 1
+tryNudge: false
+flyblocks:
+    ["#planks", "#wooden_slabs", "#logs", "#fences"]:
+        - 30.0
+        - 100.0
+    "#concrete":
+        - 0.0
+        - 0.0
+    furnace:
+        - 0.0
+        - 0.5
+    ["#chests", hopper, barrel, dropper]:
+        - 0.0
+        - 4.0
+    coal_block:
+        - 0.0
+        - 2.0

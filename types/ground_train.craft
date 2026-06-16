@@ -1,0 +1,152 @@
+name: Train
+maxSize: 1000
+minSize: 10
+allowedBlocks:
+    - "#beds"
+    - "#wool"
+    - "#slabs"
+    - "#stairs"
+    - "#chests"
+    - "#trapdoors"
+    - "#signs"
+    - "#doors"
+    - "#carpets"
+    - "#heads"
+    - dispenser
+    - note_block
+    - bookshelf
+    - torch
+    - fire
+    - redstone_wire
+    - crafting_table
+    - furnace
+    - blast_furnace
+    - smoker
+    - ladder
+    - lever
+    - redstone_torch
+    - repeater
+    - enchanting_table
+    - brewing_stand
+    - cauldron
+    - redstone_lamp
+    - ender_chest
+    - tripwire_hook
+    - tripwire
+    - flower_pot
+    - comparator
+    - iron_bars
+    - daylight_detector
+    - hopper
+    - activator_rail
+    - powered_rail
+    - hay_block
+    - tnt
+    - rail
+    - dropper
+    - bell
+    - cartography_table
+    - composter
+    - fletching_table
+    - lantern
+    - lectern
+    - loom
+    - smithing_table
+    - stonecutter
+    - coal_block
+    - gold_block
+    - magma_block
+    - andesite_wall
+    - observer
+    - amethyst_block
+    - lightning_rod
+    - glowstone
+forbiddenHoverOverBlocks:
+    - "#dirt"
+    - lava
+    - "#buttons"
+    - "#fences"
+    - "#trapdoors"
+    - iron_bars
+    - "#fence_gates"
+    - "#fences"
+    - "#planks"
+    - "#logs"
+    - "#concrete"
+    - fire
+    - wall_torch
+    - ladder
+    - netherrack
+    - cake
+    - "#walls"
+    - note_block
+    - sticky_piston
+    - piston
+    - piston_head
+    - dragon_egg
+    - beacon
+    - "#anvil"
+    - slime_block
+    - "#terracotta"
+    - stone
+    - "#stone_bricks"
+    - smooth_stone
+    - andesite
+    - polished_andesite
+    - bricks
+    - granite
+    - polished_granite
+    - diorite
+    - polished_diorite
+    - quartz_block
+    - chiseled_quartz_block
+    - quartz_pillar
+    - smooth_quartz
+    - deepslate
+    - deepslate_bricks
+    - deepslate_tiles
+    - cobbled_deepslate
+    - chiseled_deepslate
+    - cobblestone
+    - tuff
+    - grindstone
+   
+forbiddenBlocks:
+    - piston_head
+
+canFly: false
+canCruise: true
+collisionExplosion: 0.0
+allowHorizontalMovement: true
+allowVerticalMovement: false
+canStaticMove: true
+maxStaticMove: 2
+speed: 1.0
+tryNudge: false
+sinkPercent: 70.0
+hoverLimit: 1
+rotateAtMidpoint: true
+useGravity: true
+flyblocks:
+    "#wool":
+        - 40.0
+        - 100.0  
+    furnace:
+        - 0.0
+        - N5
+    ["#chests", hopper, barrel, dropper, dispenser]:
+        - 0.0
+        - 1.0
+    coal_block:
+        - 0.0
+        - 1.0
+    gold_block:
+        - 0.0
+        - 1.0
+    "#anvil": # anvils are OP armor, so limit it
+        - 0.0
+        - 1.0
+    obsidian: # so is obsidian
+        - 0.0
+        - 1.0
+

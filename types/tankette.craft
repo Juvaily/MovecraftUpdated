@@ -1,0 +1,65 @@
+name: tankette
+maxSize: 80
+minSize: 6
+allowedBlocks:
+    - "#logs"
+    - "#glass"
+    - tuff
+    - dispenser
+    - sticky_piston
+    - piston
+    - piston_head
+    - "#slabs"
+    - torch
+    - "#stairs"
+    - "#wool"
+    - ladder
+    - "#signs"
+    - lever
+    - "#pressure_plates"
+    - redstone_torch
+    - "#buttons"
+    - "#fences"
+    - "#wooden_trapdoors"
+    - iron_bars
+    - "#fence_gates"
+    - nether_brick
+    - redstone_lamp
+    - flower_pot
+    - "#heads"
+    - "#anvil"
+    - daylight_detector
+    - redstone_block
+    - hopper
+    - dropper
+    - slime_block
+    - "#carpets"
+    - coal_block
+    - smooth_stone
+    - bell
+    - fletching_table
+    - grindstone
+    - "#lanterns"
+    - lectern
+    - loom
+    - smithing_table
+    - stonecutter
+
+forbiddenBlocks:
+    - piston_head
+
+canFly: true
+canCruise: true
+canStaticMove: true
+maxStaticMove: 5
+cruiseSpeed: 5.0
+cruiseSkipBlocks: 1
+collisionExplosion: 0.0
+allowHorizontalMovement: true
+allowVerticalMovement: true
+speed: 4.0
+tryNudge: false
+sinkPercent: 90.0
+rotateAtMidpoint: false
+useGravity: true
+

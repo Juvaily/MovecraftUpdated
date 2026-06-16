@@ -49,9 +49,9 @@ public class WindManager {
     private final MovecraftCannonsPlugin plugin;
     private int period = 0;
     private Direction direction = Direction.random();
-    private int generation = 0; // incremented on every wind change
-    // Cache wool-check result per craft type name to avoid re-scanning every tick
-    private final Map<String, Boolean> woolCache = new ConcurrentHashMap<>();
+    private int generation = 0;
+    private final Map<String, Boolean> woolInFlyCache  = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> woolInMoveCache = new ConcurrentHashMap<>();
 
     public WindManager(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
@@ -79,7 +79,7 @@ public class WindManager {
             if (craft == null || !craft.getCruising()) continue;
             CruiseDirection cruiseDir = craft.getCruiseDirection();
             if (cruiseDir == CruiseDirection.UP || cruiseDir == CruiseDirection.DOWN) continue;
-            if (!isWindAffected(craft)) continue;
+            if (!hasWoolInFly(craft) && !hasWoolInMove(craft)) continue;
             int effect = computeEffect(s, cruiseDir);
             if (effect == 0) continue;
             int[] cv = dirVec(cruiseDir);
@@ -118,30 +118,38 @@ public class WindManager {
 
     // ── Wool detection ────────────────────────────────────────────────────────
 
-    private boolean isWindAffected(PlayerCraft craft) {
+    private boolean hasWoolInFly(PlayerCraft craft) {
         try {
-            String typeName = craft.getType().getStringProperty(CraftType.NAME);
-            if (typeName == null) return false;
-            return woolCache.computeIfAbsent(typeName, k -> checkWool(craft));
+            String n = craft.getType().getStringProperty(CraftType.NAME);
+            return n != null && woolInFlyCache.computeIfAbsent(n, k -> checkWoolIn(craft, true));
+        } catch (Exception ignored) { return false; }
+    }
+
+    private boolean hasWoolInMove(PlayerCraft craft) {
+        try {
+            String n = craft.getType().getStringProperty(CraftType.NAME);
+            return n != null && woolInMoveCache.computeIfAbsent(n, k -> checkWoolIn(craft, false));
         } catch (Exception ignored) { return false; }
     }
 
     @SuppressWarnings("unchecked")
-    private boolean checkWool(PlayerCraft craft) {
+    private boolean checkWoolIn(PlayerCraft craft, boolean flyBlocks) {
         try {
-            Set<RequiredBlockEntry> fly = (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(CraftType.FLY_BLOCKS);
-            if (fly != null) for (RequiredBlockEntry e : fly)
-                for (Material m : e.getMaterials())
-                    if (m.name().endsWith("_WOOL")) return true;
-        } catch (Exception ignored) {}
-        try {
-            Set<RequiredBlockEntry> move = (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS);
-            if (move != null) for (RequiredBlockEntry e : move)
+            var key = flyBlocks ? CraftType.FLY_BLOCKS : CraftType.MOVE_BLOCKS;
+            Set<RequiredBlockEntry> entries = (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(key);
+            if (entries != null) for (RequiredBlockEntry e : entries)
                 for (Material m : e.getMaterials())
                     if (m.name().endsWith("_WOOL")) return true;
         } catch (Exception ignored) {}
         return false;
     }
+
+    /** True if wind affects this craft (wool in flyblocks OR moveblocks). */
+    public boolean isWindAffected(PlayerCraft craft) { return hasWoolInFly(craft) || hasWoolInMove(craft); }
+    /** True for sea sailing ships — wool in moveblocks but NOT flyblocks. */
+    public boolean isSailShip(PlayerCraft craft)     { return hasWoolInMove(craft) && !hasWoolInFly(craft); }
+    /** Current wind effect in blocks/sec for the given cruise direction. */
+    public int getEffect(CruiseDirection dir)        { return computeEffect(getStrength(), dir); }
 
     // ── Public API ────────────────────────────────────────────────────────────
 

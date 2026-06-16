@@ -1,0 +1,141 @@
+name: Big Airship
+maxSize: 10000
+minSize: 5000
+allowedBlocks: 
+    - "#planks"
+    - "#logs"
+    - "#beds"
+    - "#wool"
+    - "#slabs"
+    - "#stairs"
+    - "#chests"
+    - "#trapdoors"
+    - "#signs"
+    - "#doors"
+    - "#fence_gates"
+    - "#buttons"
+    - "#fences"
+    - "#terracotta"
+    - "#carpets"
+    - "#heads"
+    - "#anvil"
+    - "#pressure_plates"
+    - "#concrete"
+    - "#glass"
+    - dispenser
+    - note_block
+    - iron_block
+    - bookshelf
+    - torch
+    - fire
+    - redstone_wire
+    - crafting_table
+    - furnace
+    - blast_furnace
+    - smoker
+    - ladder
+    - lever
+    - redstone_torch
+    - repeater
+    - enchanting_table
+    - brewing_stand
+    - cauldron
+    - redstone_lamp
+    - ender_chest
+    - tripwire_hook
+    - tripwire
+    - flower_pot
+    - comparator
+    - daylight_detector
+    - hopper
+    - activator_rail
+    - powered_rail
+    - hay_block
+    - tnt
+    - rail
+    - dropper
+    - bell
+    - cartography_table
+    - composter
+    - fletching_table
+    - lantern
+    - lectern
+    - loom
+    - smithing_table
+    - stonecutter
+    - coal_block
+    - gold_block
+    - redstone_block
+    - blackstone
+    - blackstone_wall
+    - observer
+    - amethyst_block
+    - lightning_rod
+    - glowstone
+    - andesite
+    - andesite_wall
+    - iron_bars
+    
+forbiddenBlocks:
+    - piston_head
+
+canCruise: true
+rotateAtMidpoint: true
+canFly: true
+maxHeightLimit: 230
+maxHeightAboveGround: 100
+vertCruiseSkipBlocks: 3
+collisionExplosion: 0.0
+detectionMultiplier: 10.0
+underwaterDetectionMultiplier: 1.0
+speed: 2.0
+cruiseSkipBlocks: 1
+cruiseSpeed: 2.0
+fuelBurnRate: 2.0
+sinkPercent: 99.0
+overallSinkPercent: 60.0
+tryNudge: false
+canStaticMove: true
+maxStaticMove: 2
+
+moveblocks:
+    redstone_block: # redstone represents engines
+        - 1.0
+        - 100.0
+flyblocks:
+    "#wool": #wool represents lift
+        - 30.0
+        - 100.0
+    "#concrete":
+        - 0.0
+        - 0.0
+    "#pressure_plates":
+        - 0.0
+        - 1.0   
+    furnace:
+        - 0.0
+        - N5
+    ["#chests", hopper, barrel, dropper, dispenser]:
+        - 0.0
+        - 1.0
+    coal_block:
+        - 0.0
+        - 1.0
+    "#anvil": # anvils are OP armor, so limit it
+        - 0.0
+        - 1.0
+    obsidian: # so is obsidian
+        - 0.0
+        - 1.0
+    water: # so is water
+        - 0.0
+        - 1.0
+    blackstone:
+        - 0.0
+        - 10.0
+fuelTypes:
+    coal_block: 80.0
+    coal: 8.0
+    charcoal: 8.0
+    stick: 0.5
+    bamboo_planks: 2.0

@@ -1,0 +1,162 @@
+name: Airskiff
+maxSize: 500
+minSize: 10
+allowedBlocks:
+    - "#beds"
+    - "#lanterns"
+    - "#wooden_shelves"
+    - "#planks"
+    - "#wool"
+    - "#slabs"
+    - "#stairs"
+    - "#chests"
+    - "#trapdoors"
+    - "#signs"
+    - "#doors"
+    - "#fence_gates"
+    - "#buttons"
+    - "#fences"
+    - "#carpets"
+    - "#heads"
+    - "#anvil"
+    - "#terracotta"
+    - "#pressure_plates"
+    - "#glass_blocks"
+    - dispenser
+    - note_block
+    - bookshelf
+    - torch
+    - fire
+    - redstone_wire
+    - crafting_table
+    - furnace
+    - blast_furnace
+    - smoker
+    - ladder
+    - lever
+    - redstone_torch
+    - repeater
+    - enchanting_table
+    - brewing_stand
+    - cauldron
+    - redstone_lamp
+    - ender_chest
+    - tripwire_hook
+    - tripwire
+    - flower_pot
+    - comparator
+    - daylight_detector
+    - hopper
+    - activator_rail
+    - powered_rail
+    - hay_block
+    - tnt
+    - rail
+    - dropper
+    - bell
+    - cartography_table
+    - composter
+    - fletching_table
+    - lantern
+    - lectern
+    - loom
+    - smithing_table
+    - stonecutter
+    - coal_block
+    - gold_block
+    - redstone_block
+    - blackstone
+    - blackstone_wall
+    - observer
+    - amethyst_block
+    - lightning_rod
+    - glowstone
+    - andesite
+    - andesite_wall
+    - exposed_chiseled_copper
+    - exposed_copper
+    - exposed_copper_bulb
+    - exposed_copper_grate
+    - exposed_cut_copper
+    - oxidized_chiseled_copper
+    - oxidized_copper
+    - oxidized_copper_bulb
+    - oxidized_copper_grate
+    - oxidized_cut_copper
+    - waxed_chiseled_copper
+    - waxed_copper_block
+    - waxed_copper_grate
+    - waxed_cut_copper
+    - waxed_exposed_chiseled_copper
+    - waxed_exposed_copper
+    - waxed_exposed_copper_grate
+    - waxed_exposed_cut_copper
+    - waxed_oxidized_chiseled_copper
+    - waxed_oxidized_copper
+    - waxed_oxidized_copper_grate
+    - waxed_oxidized_cut_copper
+    - waxed_weathered_chiseled_copper
+    - waxed_weathered_copper
+    - waxed_weathered_copper_grate
+    - waxed_weathered_cut_copper
+    - weathered_chiseled_copper
+    - weathered_copper
+    - weathered_copper_bulb
+    - weathered_copper_grate
+    - weathered_cut_copper
+    - copper_block
+    - copper_bulb
+    - copper_grate
+    - cut_copper
+    - chiseled_copper
+forbiddenBlocks:
+    - piston_head
+
+passthroughBlocks:
+    - iron_block
+canFly: true
+rotateAtMidpoint: true
+canCruise: true
+canTeleport: true
+cruiseSpeed: 5.0
+cruiseSkipBlocks: 2
+maxHeightLimit: 300
+maxHeightAboveGround: 100
+collisionExplosion: 0.0
+explodeOnCrash: 4.0
+sinkSpeed: 3.0
+overallSinkPercent: 97.0
+detectionMultiplier: 20.0
+underwaterDetectionMultiplier: 2.0
+smokeOnSink: 1
+keepMovingOnSink: true
+canStaticMove: true
+canTeleport: true
+speed: 2.0
+tryNudge: false
+sinkPercent: 99.0
+flyblocks:
+    "#wool": #wool represents lift
+        - 30.0
+        - 100.0
+    "#concrete":
+        - 0.0
+        - 0.0
+    ["#chests", hopper, barrel, dropper, dispenser]:
+        - 0.0
+        - 5.0
+    redstone_block: # magma represents engines
+        - 4.0
+        - 100.0
+    "#anvil": # anvils are OP armor, so limit it
+        - 0.0
+        - 1.0
+    obsidian: # so is obsidian
+        - 0.0
+        - 1.0
+    water: # so is water
+        - 0.0
+        - 1.0
+    blackstone:
+        - 0.0
+        - 10.0

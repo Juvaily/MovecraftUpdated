@@ -11,7 +11,10 @@ import net.countercraft.movecraft.MovecraftRotation;
 
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
+import net.countercraft.movecraft.craft.type.CraftType;
+import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.events.CraftRotateEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
 import org.bukkit.Location;
 import net.kyori.adventure.text.Component;
@@ -54,6 +57,13 @@ import org.bukkit.scheduler.BukkitTask;
 
 public class ShipMenuListener implements Listener {
 
+    private enum SailGear {
+        FULL(1), HALF(2), NONE(3);
+        final int divisor;
+        SailGear(int d) { divisor = d; }
+        int apply(int baseBps) { return Math.max(1, baseBps / divisor); }
+    }
+
     private final MovecraftCannonsPlugin plugin;
     private final WindManager windManager;
 
@@ -61,10 +71,15 @@ public class ShipMenuListener implements Listener {
     private final Map<UUID, Consumer<Player>[]> menuActions   = new ConcurrentHashMap<>();
     // Running repair tasks per player
     private final Map<UUID, BukkitTask>         activeRepairs = new ConcurrentHashMap<>();
+    // Sail gear per player (only for sail ships)
+    private final Map<UUID, SailGear>           sailGears     = new ConcurrentHashMap<>();
+    // Manual cruise direction (used when gear is HALF or NONE)
+    private final Map<UUID, CruiseDirection>    reducedDirs   = new ConcurrentHashMap<>();
 
     public ShipMenuListener(MovecraftCannonsPlugin plugin, WindManager windManager) {
         this.plugin = plugin;
         this.windManager = windManager;
+        Bukkit.getScheduler().runTaskTimer(plugin, this::tickManualCruise, 20L, 20L);
     }
 
     // ── Open menu: right-click BOOK while piloting ─────────────────────────────
@@ -131,7 +146,11 @@ public class ShipMenuListener implements Listener {
         holder.setInventory(inv);
 
         Consumer<Player>[] actions = new Consumer[54];
-        CruiseDirection curDir = craft.getCruising() ? craft.getCruiseDirection() : CruiseDirection.NONE;
+        boolean isSail = windManager.isSailShip(craft);
+        SailGear gear = isSail ? sailGears.getOrDefault(player.getUniqueId(), SailGear.FULL) : SailGear.FULL;
+        CruiseDirection curDir = gear == SailGear.FULL
+                ? (craft.getCruising() ? craft.getCruiseDirection() : CruiseDirection.NONE)
+                : reducedDirs.getOrDefault(player.getUniqueId(), CruiseDirection.NONE);
 
         // Directions relative to player yaw
         CruiseDirection[] rel = relDirs(player.getLocation().getYaw());
@@ -146,7 +165,7 @@ public class ShipMenuListener implements Listener {
 
         setSlot(inv, actions, 1,
                 relCruiseItem(player, craft, fwd, curDir, cardinalName(fwd, player)),
-                p -> setCruise(p, craft, fwd));
+                p -> applyCruise(p, craft, fwd, gear));
 
         setSlot(inv, actions, 2,
                 item(Material.SPECTRAL_ARROW,
@@ -201,15 +220,15 @@ public class ShipMenuListener implements Listener {
         // Row 1: Left / Stop / Right
         setSlot(inv, actions, 9,
                 relCruiseItem(player, craft, lft, curDir, cardinalName(lft, player)),
-                p -> setCruise(p, craft, lft));
+                p -> applyCruise(p, craft, lft, gear));
         setSlot(inv, actions, 10,
                 item(Material.BARRIER,
                         Lang.get("menu.stop.name", player),
                         Lang.get("menu.stop.lore", player)),
-                p -> stopCruise(craft));
+                p -> { stopCruise(craft); reducedDirs.remove(p.getUniqueId()); });
         setSlot(inv, actions, 11,
                 relCruiseItem(player, craft, rgt, curDir, cardinalName(rgt, player)),
-                p -> setCruise(p, craft, rgt));
+                p -> applyCruise(p, craft, rgt, gear));
 
         // Row 2: Up / Backward / Down
         boolean canVertical = allowsVertical(craft);
@@ -226,7 +245,7 @@ public class ShipMenuListener implements Listener {
         }
         setSlot(inv, actions, 19,
                 relCruiseItem(player, craft, bwd, curDir, cardinalName(bwd, player)),
-                p -> setCruise(p, craft, bwd));
+                p -> applyCruise(p, craft, bwd, gear));
 
         // Cannon data: types + broadside groupings (player-yaw relative)
         List<Cannon> allCannons = findCannonsOnCraft(craft);
@@ -278,7 +297,8 @@ public class ShipMenuListener implements Listener {
             si++;
         }
 
-        buildWindCompass(inv, player);
+        if (windManager.isWindAffected(craft)) buildWindCompass(inv, player);
+        if (isSail) buildSailButtons(inv, actions, player, craft, gear);
 
         menuActions.put(player.getUniqueId(), actions);
         player.openInventory(inv);
@@ -304,13 +324,14 @@ public class ShipMenuListener implements Listener {
         int s = windManager.getStrength();
         WindManager.Direction windDir = s >= 2 ? windManager.getDirection() : null;
 
-        // Background — all of rows 3-5 except compass slots
+        // Background — only columns 0-2 of rows 3-5 (cols 3+ freed for other buttons)
         ItemStack bg = windBgPane();
-        int[] special = {28, 36, 37, 38, 46};
-        java.util.Set<Integer> skip = new java.util.HashSet<>();
-        for (int cs : special) skip.add(cs);
-        for (int slot = 27; slot < 54; slot++) {
-            if (!skip.contains(slot)) inv.setItem(slot, bg);
+        java.util.Set<Integer> compass = java.util.Set.of(28, 36, 37, 38, 46);
+        for (int row = 3; row <= 5; row++) {
+            for (int col = 0; col <= 2; col++) {
+                int slot = row * 9 + col;
+                if (!compass.contains(slot)) inv.setItem(slot, bg);
+            }
         }
 
         // Strength center (slot 37)
@@ -387,6 +408,140 @@ public class ShipMenuListener implements Listener {
         }
         is.setItemMeta(m);
         inv.setItem(slot, is);
+    }
+
+    // ── Sail gear buttons (slots 39/40/41 — row 4 0-idx, cols 3/4/5) ──────────
+
+    @SuppressWarnings("unchecked")
+    private void buildSailButtons(Inventory inv, Consumer<Player>[] actions, Player player,
+                                  PlayerCraft craft, SailGear current) {
+        int[] slots = {39, 40, 41};
+        SailGear[] gears = {SailGear.FULL, SailGear.HALF, SailGear.NONE};
+        for (int i = 0; i < 3; i++) {
+            SailGear g = gears[i];
+            setSlot(inv, actions, slots[i], sailGearItem(g, current, player),
+                    p -> setSailGear(p, craft, g));
+        }
+    }
+
+    private ItemStack sailGearItem(SailGear gear, SailGear current, Player player) {
+        boolean active = gear == current;
+        String nameKey = switch (gear) {
+            case FULL -> "menu.sail.full";
+            case HALF -> "menu.sail.half";
+            case NONE -> "menu.sail.none";
+        };
+        String loreKey = switch (gear) {
+            case FULL -> "menu.sail.full.lore";
+            case HALF -> "menu.sail.half.lore";
+            case NONE -> "menu.sail.none.lore";
+        };
+        Material mat = switch (gear) {
+            case FULL -> Material.WHITE_WOOL;
+            case HALF -> Material.LIGHT_GRAY_WOOL;
+            case NONE -> Material.GRAY_WOOL;
+        };
+        NamedTextColor color = active ? NamedTextColor.GREEN : NamedTextColor.GRAY;
+        String prefix = active ? "§a▶ " : "";
+        ItemStack is = new ItemStack(mat);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text(prefix + Lang.get(nameKey, player))
+                .color(color).decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(Component.text(Lang.get(loreKey, player))
+                .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)));
+        is.setItemMeta(m);
+        return is;
+    }
+
+    private void setSailGear(Player player, PlayerCraft craft, SailGear gear) {
+        UUID uid = player.getUniqueId();
+        SailGear prev = sailGears.getOrDefault(uid, SailGear.FULL);
+        sailGears.put(uid, gear);
+        if (gear == SailGear.FULL) {
+            CruiseDirection dir = reducedDirs.remove(uid);
+            if (dir != null) { craft.setCruiseDirection(dir); craft.setCruising(true); }
+        } else if (prev == SailGear.FULL) {
+            CruiseDirection cur = craft.getCruising() ? craft.getCruiseDirection() : null;
+            craft.setCruising(false);
+            if (cur != null && cur != CruiseDirection.NONE
+                    && cur != CruiseDirection.UP && cur != CruiseDirection.DOWN)
+                reducedDirs.put(uid, cur);
+        }
+    }
+
+    private void applyCruise(Player player, PlayerCraft craft, CruiseDirection dir, SailGear gear) {
+        if (gear == SailGear.FULL) {
+            setCruise(player, craft, dir);
+        } else {
+            craft.setCruising(false);
+            reducedDirs.put(player.getUniqueId(), dir);
+        }
+    }
+
+    // ── Manual cruise tick (HALF / NONE gears) ────────────────────────────────
+
+    private void tickManualCruise() {
+        List<UUID> toRemove = new ArrayList<>();
+        for (Map.Entry<UUID, CruiseDirection> entry : reducedDirs.entrySet()) {
+            UUID uid = entry.getKey();
+            Player player = Bukkit.getPlayer(uid);
+            if (player == null) { toRemove.add(uid); continue; }
+            PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
+            if (craft == null) { toRemove.add(uid); continue; }
+            SailGear gear = sailGears.getOrDefault(uid, SailGear.HALF);
+            int baseBps = getBaseBps(craft);
+            int move    = gear.apply(baseBps);
+            int wind    = windManager.getEffect(entry.getValue());
+            int total   = Math.max(0, move + wind);
+            if (total == 0) continue;
+            int[] cv = sailDirVec(entry.getValue());
+            try { craft.translate(cv[0] * total, 0, cv[1] * total); }
+            catch (Exception ignored) {}
+        }
+        toRemove.forEach(uid -> { reducedDirs.remove(uid); sailGears.remove(uid); });
+    }
+
+    @SuppressWarnings("unchecked")
+    private int getBaseBps(PlayerCraft craft) {
+        try {
+            int skip = (Integer) craft.getType().getIntProperty(CraftType.CRUISE_SKIP_BLOCKS);
+            int cool = craft.getTickCooldown();
+            if (cool > 0) return Math.max(1, Math.round((skip + 1) * 20.0f / cool));
+        } catch (Exception ignored) {}
+        try {
+            double spd = craft.getSpeed();
+            if (spd > 0 && spd < 50) return (int) Math.round(spd);
+        } catch (Exception ignored) {}
+        return 3;
+    }
+
+    private static int[] sailDirVec(CruiseDirection dir) {
+        return switch (dir) {
+            case NORTH -> new int[]{0, -1};
+            case SOUTH -> new int[]{0, 1};
+            case EAST  -> new int[]{1, 0};
+            case WEST  -> new int[]{-1, 0};
+            default    -> new int[]{0, 0};
+        };
+    }
+
+    // ── Sail state cleanup ────────────────────────────────────────────────────
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onCraftRelease(CraftReleaseEvent event) {
+        if (!(event.getCraft() instanceof net.countercraft.movecraft.craft.PilotedCraft pc)) return;
+        org.bukkit.entity.Player pilot = pc.getPilot();
+        if (pilot == null) return;
+        UUID uid = pilot.getUniqueId();
+        sailGears.remove(uid);
+        reducedDirs.remove(uid);
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        UUID uid = event.getPlayer().getUniqueId();
+        sailGears.remove(uid);
+        reducedDirs.remove(uid);
     }
 
     private Component loreComp(String text, NamedTextColor color) {
