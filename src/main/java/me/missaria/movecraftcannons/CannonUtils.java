@@ -2,6 +2,7 @@ package me.missaria.movecraftcannons;
 
 import at.pavlov.cannons.cannon.Cannon;
 import at.pavlov.cannons.cannon.CannonManager;
+import at.pavlov.cannons.cannon.DesignStorage;
 import net.countercraft.movecraft.MovecraftLocation;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
@@ -66,7 +67,6 @@ public final class CannonUtils {
         if (pilot == null) return;
         World world = craft.getWorld();
         HitBox hitBox = craft.getHitBox();
-        CannonManager mgr = CannonManager.getInstance();
 
         // Collect positions of already-registered cannons (skip those)
         Set<String> existing = existingPositionKeys(craft.getWorld().getUID(), world, hitBox);
@@ -78,7 +78,7 @@ public final class CannonUtils {
 
             // Only right-click blocks that are part of some cannon design
             try {
-                if (!mgr.isCannonBlockMaterial(block.getType())) continue;
+                if (!DesignStorage.getInstance().isCannonBlockMaterial(block.getType())) continue;
             } catch (Exception ignored) { continue; }
 
             // Skip already-existing cannon positions
