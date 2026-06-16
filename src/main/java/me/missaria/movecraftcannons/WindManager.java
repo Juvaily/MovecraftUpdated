@@ -10,6 +10,7 @@ import org.bukkit.Material;
 import org.bukkit.entity.Player;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -121,13 +122,13 @@ public class WindManager {
     @SuppressWarnings("unchecked")
     private boolean checkWool(PlayerCraft craft) {
         try {
-            RequiredBlockEntry[] fly = (RequiredBlockEntry[]) craft.getType().getRequiredBlockProperty(CraftType.FLY_BLOCKS);
+            Set<RequiredBlockEntry> fly = (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(CraftType.FLY_BLOCKS);
             if (fly != null) for (RequiredBlockEntry e : fly)
                 for (Material m : e.getMaterials())
                     if (m.name().endsWith("_WOOL")) return true;
         } catch (Exception ignored) {}
         try {
-            RequiredBlockEntry[] move = (RequiredBlockEntry[]) craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS);
+            Set<RequiredBlockEntry> move = (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(CraftType.MOVE_BLOCKS);
             if (move != null) for (RequiredBlockEntry e : move)
                 for (Material m : e.getMaterials())
                     if (m.name().endsWith("_WOOL")) return true;
