@@ -101,17 +101,25 @@ public class CraftMoveListener implements Listener {
     }
 
     // ── GSit compatibility ────────────────────────────────────────────────────
-    // When a player is seated via GSit (riding an ArmorStand), Movecraft's
-    // teleport ejects them from the seat. We re-seat them on the next tick.
+    // CraftTeleportEntityEvent fires BEFORE Movecraft teleports the entity.
+    // We capture the player's pre-teleport location, then on the next tick
+    // calculate the exact delta and shift the GSit ArmorStand by the same
+    // amount — preserving the seat's position relative to the block surface.
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onCraftTeleportEntity(CraftTeleportEntityEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
         Entity vehicle = player.getVehicle();
         if (!(vehicle instanceof ArmorStand)) return;
+        org.bukkit.Location pre = player.getLocation().clone();
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (!vehicle.isValid()) return;
-            vehicle.teleport(player.getLocation());
+            org.bukkit.Location post = player.getLocation();
+            double dx = post.getX() - pre.getX();
+            double dy = post.getY() - pre.getY();
+            double dz = post.getZ() - pre.getZ();
+            if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01 && Math.abs(dz) < 0.01) return;
+            vehicle.teleport(vehicle.getLocation().clone().add(dx, dy, dz));
             vehicle.addPassenger(player);
         }, 1L);
     }
