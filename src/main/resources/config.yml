@@ -23,6 +23,13 @@ repair:
   blocks_per_tick: 1
   tick_delay: 5
 
+# Wind mechanics: affects ships/airships whose craft type uses wool as a fly- or move-block.
+# Five periods cycle in order: I(weak) → II(strong) → III(calm) → IV(strong) → V(storm).
+# Wind direction is randomised each period (except calm). Ships gain/lose 2-4 blocks/s
+# depending on whether they sail with or against the wind.
+wind:
+  period_duration_minutes: 10
+
 # Item taken from the pilot's inventory per cannon fired via ship menu.
 # Set material to '' to disable custom ammo consumption.
 ammo:

@@ -33,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WasdListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
+    private final WindManager windManager;
 
     private final Map<UUID, int[]>    latestDir       = new ConcurrentHashMap<>();
     private final Map<UUID, Long>     latestTime      = new ConcurrentHashMap<>();
@@ -45,14 +46,17 @@ public class WasdListener implements Listener {
     private final Map<UUID, Float>    savedFlySpeed    = new ConcurrentHashMap<>();
 
     // DC extras: scoreboard
-    private final Map<UUID, Scoreboard> dcScoreboards = new ConcurrentHashMap<>();
+    private final Map<UUID, Scoreboard> dcScoreboards  = new ConcurrentHashMap<>();
+    // Wind period at scoreboard build time — used to detect changes and rebuild
+    private final Map<UUID, Integer>    dcWindPeriod   = new ConcurrentHashMap<>();
 
     private static final long   ROTATE_DEBOUNCE = 600L;
     private static final float  PILOT_SPEED     = 0.005f;
     private static final double MOVE_THRESHOLD  = 0.001;
 
-    public WasdListener(MovecraftCannonsPlugin plugin) {
+    public WasdListener(MovecraftCannonsPlugin plugin, WindManager windManager) {
         this.plugin = plugin;
+        this.windManager = windManager;
         long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
         Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 0L, Math.max(1L, cooldown / 50L));
         Bukkit.getScheduler().runTaskTimer(plugin, this::syncFlightState, 0L, 10L);
@@ -93,10 +97,20 @@ public class WasdListener implements Listener {
                 String shipName = craftName(craft);
                 Scoreboard sb = buildDcScoreboard(player, shipName);
                 dcScoreboards.put(uid, sb);
+                dcWindPeriod.put(uid, windManager.getPeriodNumber());
                 player.setScoreboard(sb);
 
             } else if (!locked && tracked) {
                 restoreFlight(player);
+            } else if (locked) {
+                // ── Still in DC — rebuild scoreboard if wind period changed ──
+                Integer sbPeriod = dcWindPeriod.get(uid);
+                if (sbPeriod == null || sbPeriod != windManager.getPeriodNumber()) {
+                    Scoreboard sb = buildDcScoreboard(player, craftName(craft));
+                    dcScoreboards.put(uid, sb);
+                    dcWindPeriod.put(uid, windManager.getPeriodNumber());
+                    player.setScoreboard(sb);
+                }
             }
         }
     }
@@ -122,6 +136,7 @@ public class WasdListener implements Listener {
 
         latestDir.remove(uid);
         latestTime.remove(uid);
+        dcWindPeriod.remove(uid);
 
         // Restore DC extras
         player.setInvulnerable(false);
@@ -294,6 +309,7 @@ public class WasdListener implements Listener {
             Lang.get("dc.rotate", player),
             Lang.get("dc.menu", player),
             Lang.get("dc.sep2", player),
+            Lang.get("dc.wind", player, windManager.getStrengthDisplay(player)),
             Lang.get("dc.leave", player),
         };
         for (int i = 0; i < lines.length; i++) {
