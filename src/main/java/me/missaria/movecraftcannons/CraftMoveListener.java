@@ -104,7 +104,6 @@ public class CraftMoveListener implements Listener {
         // is still riding the ArmorStand. Capture player→seat pairs here, then
         // in the next tick (after Movecraft has ejected+teleported the player)
         // move the seat by the same delta and re-seat the player.
-        final int gdx = dx, gdy = dy, gdz = dz;
         final int mnX = oldBox.getMinX(), mxX = oldBox.getMaxX();
         final int mnY = oldBox.getMinY(), mxY = oldBox.getMaxY();
         final int mnZ = oldBox.getMinZ(), mxZ = oldBox.getMaxZ();
@@ -122,11 +121,12 @@ public class CraftMoveListener implements Listener {
         }
 
         if (!seats.isEmpty()) {
+            // Movecraft already teleports the ArmorStand (it's inside the hitbox).
+            // We only need to re-seat the player after Movecraft ejects them.
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 for (Map.Entry<Player, Entity> e : seats.entrySet()) {
                     Entity vehicle = e.getValue();
                     if (!vehicle.isValid()) continue;
-                    vehicle.teleport(vehicle.getLocation().clone().add(gdx, gdy, gdz));
                     vehicle.addPassenger(e.getKey());
                 }
             }, 1L);
