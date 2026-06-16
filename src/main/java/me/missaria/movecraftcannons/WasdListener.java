@@ -27,6 +27,7 @@ import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -49,6 +50,9 @@ public class WasdListener implements Listener {
     private final Map<UUID, Scoreboard> dcScoreboards  = new ConcurrentHashMap<>();
     // Wind generation at scoreboard build time — used to detect changes and rebuild
     private final Map<UUID, Integer>    dcWindGen   = new ConcurrentHashMap<>();
+
+    // Players currently in DC mode — checked by CraftMoveListener to skip teleport
+    public static final Set<UUID> DC_PILOTS = ConcurrentHashMap.newKeySet();
 
     private static final long   ROTATE_DEBOUNCE = 600L;
     private static final float  PILOT_SPEED     = 0.005f;
@@ -84,6 +88,7 @@ public class WasdListener implements Listener {
                 player.setFlying(true);
                 player.setWalkSpeed(PILOT_SPEED);
                 player.setFlySpeed(PILOT_SPEED);
+                DC_PILOTS.add(uid);
 
                 // Invulnerable + invisible to others
                 player.setInvulnerable(true);
@@ -117,6 +122,7 @@ public class WasdListener implements Listener {
 
     private void restoreFlight(Player player) {
         UUID uid = player.getUniqueId();
+        DC_PILOTS.remove(uid);
 
         // Restore flight
         Boolean origAllow  = savedAllowFlight.remove(uid);

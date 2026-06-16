@@ -19,6 +19,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
@@ -133,6 +134,30 @@ public class CraftMoveListener implements Listener {
                     // whether Movecraft already moved it or not.
                     vehicle.teleport(oldLoc.clone().add(gdx, gdy, gdz));
                     vehicle.addPassenger(e.getKey());
+                }
+            }, 1L);
+        }
+
+        // ── Freeze standing passengers: teleport with the craft ───────────────
+        // DC pilots already fly in place; seated players handled above.
+        Map<Player, org.bukkit.Location> standing = new HashMap<>();
+        for (Player player : world.getPlayers()) {
+            if (player.getVehicle() != null) continue;
+            if (WasdListener.DC_PILOTS.contains(player.getUniqueId())) continue;
+            org.bukkit.Location pl = player.getLocation();
+            int px = (int) Math.floor(pl.getX());
+            int py = (int) Math.floor(pl.getY());
+            int pz = (int) Math.floor(pl.getZ());
+            if (px < mnX || px > mxX || py < mnY || py > mxY + 2 || pz < mnZ || pz > mxZ) continue;
+            standing.put(player, pl.clone());
+        }
+        if (!standing.isEmpty()) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                for (Map.Entry<Player, org.bukkit.Location> e : standing.entrySet()) {
+                    Player p = e.getKey();
+                    if (!p.isOnline()) continue;
+                    p.teleport(e.getValue().clone().add(gdx, gdy, gdz),
+                            PlayerTeleportEvent.TeleportCause.PLUGIN);
                 }
             }, 1L);
         }
