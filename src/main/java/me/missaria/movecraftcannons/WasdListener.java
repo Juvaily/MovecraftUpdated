@@ -308,6 +308,7 @@ public class WasdListener implements Listener {
             Lang.get("dc.wasd", player),
             Lang.get("dc.rotate", player),
             Lang.get("dc.menu", player),
+            Lang.get("dc.aim", player),
             Lang.get("dc.sep2", player),
             Lang.get("dc.wind", player, windManager.getStrengthDisplay(player)),
             Lang.get("dc.leave", player),
