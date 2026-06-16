@@ -12,3 +12,12 @@ commands:
     description: Открыть меню управления транспортом
     usage: /shipmenu
     aliases: [sm]
+  windroll:
+    description: Случайно изменить ветер (только для администраторов)
+    usage: /windroll
+    permission: movecraftcannons.admin.wind
+
+permissions:
+  movecraftcannons.admin.wind:
+    description: Доступ к команде /windroll
+    default: op

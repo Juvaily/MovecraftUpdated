@@ -138,9 +138,17 @@ public class WindManager {
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    public int getStrength()     { return STRENGTHS[period]; }
+    public int getStrength()        { return STRENGTHS[period]; }
     public Direction getDirection() { return direction; }
-    public int getPeriodNumber() { return period + 1; }
+    public int getPeriodNumber()    { return period + 1; }
+
+    /** Admin command: pick a random period and direction, then broadcast. */
+    public void randomize() {
+        period = ThreadLocalRandom.current().nextInt(5);
+        if (getStrength() > 0) direction = Direction.random();
+        String msg = Lang.get("wind.change", getPeriodNumber(), getStrengthDisplay());
+        Bukkit.getOnlinePlayers().forEach(p -> p.sendMessage(msg));
+    }
 
     /** Colored string for server broadcasts — direction shown as word (server language). */
     public String getStrengthDisplay() {

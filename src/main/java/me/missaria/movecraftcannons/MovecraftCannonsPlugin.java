@@ -41,6 +41,15 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
             }
             return shipMenu.onCommand(player);
         }
+        if (command.getName().equalsIgnoreCase("windroll")) {
+            if (!sender.hasPermission("movecraftcannons.admin.wind")) {
+                sender.sendMessage("§cНет доступа.");
+                return true;
+            }
+            windManager.randomize();
+            sender.sendMessage("§aВетер изменён.");
+            return true;
+        }
         return false;
     }
 
