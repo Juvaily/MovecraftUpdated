@@ -20,8 +20,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.event.vehicle.VehicleExitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
@@ -38,49 +39,60 @@ public class CraftMoveListener implements Listener {
 
     private final Map<UUID, List<MovecraftLocation>> spawnWaterPos = new ConcurrentHashMap<>();
 
-    // Auto-managed seats for passengers (non-DC, non-GSit) on moving crafts
-    private final Map<UUID, ArmorStand> managedSeats  = new ConcurrentHashMap<>();
-    private final Map<UUID, Long>       lastSeatMove  = new ConcurrentHashMap<>();
-
-    // Y offset: small ArmorStand mount height so the player appears at their original feet position
-    private static final double SEAT_OFFSET_Y = 1.18;
+    // Players frozen on a moving ship: flight mode keeps gravity off between teleports
+    private final Map<UUID, Boolean> passengerAllowFlight = new ConcurrentHashMap<>();
+    private final Map<UUID, Boolean> passengerFlying      = new ConcurrentHashMap<>();
+    private final Map<UUID, Long>    lastShipMove         = new ConcurrentHashMap<>();
 
     public CraftMoveListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
-        // Unseat players 600 ms after the craft stops moving
-        Bukkit.getScheduler().runTaskTimer(plugin, this::tickSeats, 10L, 10L);
+        // Restore flight state 600 ms after the craft stops moving
+        Bukkit.getScheduler().runTaskTimer(plugin, this::tickPassengers, 10L, 10L);
     }
 
-    // ── Managed seat lifecycle ────────────────────────────────────────────────
+    // ── Passenger freeze lifecycle ────────────────────────────────────────────
 
-    private void tickSeats() {
+    private void tickPassengers() {
         long now = System.currentTimeMillis();
-        new ArrayList<>(managedSeats.keySet()).forEach(uid -> {
-            if (now - lastSeatMove.getOrDefault(uid, 0L) > 600L) {
-                unseatPlayer(uid);
+        new ArrayList<>(passengerAllowFlight.keySet()).forEach(uid -> {
+            if (now - lastShipMove.getOrDefault(uid, 0L) > 600L) {
+                restorePassenger(uid);
             }
         });
     }
 
-    private void unseatPlayer(UUID uid) {
-        ArmorStand stand = managedSeats.remove(uid);
-        lastSeatMove.remove(uid);
-        if (stand != null && stand.isValid()) stand.remove();
+    private void restorePassenger(UUID uid) {
+        Boolean origAllow  = passengerAllowFlight.remove(uid);
+        Boolean origFlying = passengerFlying.remove(uid);
+        lastShipMove.remove(uid);
+        Player p = Bukkit.getPlayer(uid);
+        if (p == null || origAllow == null) return;
+        p.setAllowFlight(origAllow);
+        if (!origFlying && !origAllow) p.setFlying(false);
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
-        unseatPlayer(event.getPlayer().getUniqueId());
+        restorePassenger(event.getPlayer().getUniqueId());
     }
 
-    @EventHandler
-    public void onVehicleExit(VehicleExitEvent event) {
-        if (!(event.getExited() instanceof Player p)) return;
-        UUID uid = p.getUniqueId();
-        if (managedSeats.containsKey(uid)) {
-            // Remove on next tick so the event fully resolves first
-            Bukkit.getScheduler().runTaskLater(plugin, () -> unseatPlayer(uid), 1L);
-        }
+    // Cancel voluntary movement while frozen (flight mode lets the player move freely
+    // if we don't block it). Head rotation (yaw/pitch only) is still allowed.
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPassengerMove(PlayerMoveEvent event) {
+        if (event instanceof PlayerTeleportEvent) return;
+        UUID uid = event.getPlayer().getUniqueId();
+        if (!passengerAllowFlight.containsKey(uid)) return;
+        Location from = event.getFrom();
+        Location to   = event.getTo();
+        if (to == null) return;
+        if (Math.abs(to.getX() - from.getX()) < 0.001
+                && Math.abs(to.getY() - from.getY()) < 0.001
+                && Math.abs(to.getZ() - from.getZ()) < 0.001) return;
+        Location pushBack = from.clone();
+        pushBack.setYaw(to.getYaw());
+        pushBack.setPitch(to.getPitch());
+        event.setTo(pushBack);
     }
 
     // ── Craft translate ───────────────────────────────────────────────────────
@@ -133,44 +145,39 @@ public class CraftMoveListener implements Listener {
         final int mnY = oldBox.getMinY(), mxY = oldBox.getMaxY();
         final int mnZ = oldBox.getMinZ(), mxZ = oldBox.getMaxZ();
 
-        // ── Auto-seat standing passengers ─────────────────────────────────────
-        // Check X/Z only (same as GSit block) — Y differs when already riding.
+        // ── Freeze passengers with flight + teleport ──────────────────────────
+        // Flight mode eliminates gravity for the 1-tick gap between block move and
+        // teleport. PlayerMoveEvent (above) cancels voluntary movement between ticks.
+        // Approach is identical to how WasdListener freezes the DC pilot, but here
+        // we also teleport the player by (dx, dy, dz) so they move WITH the craft.
         for (Player player : world.getPlayers()) {
             UUID uid = player.getUniqueId();
             if (WasdListener.DC_PILOTS.contains(uid)) continue;
+            if (player.getVehicle() != null) continue; // GSit users — handled below
             Location pl = player.getLocation();
             int px = (int) Math.floor(pl.getX());
+            int py = (int) Math.floor(pl.getY());
             int pz = (int) Math.floor(pl.getZ());
-            if (px < mnX || px > mxX || pz < mnZ || pz > mxZ) continue;
+            if (px < mnX || px > mxX || py < mnY || py > mxY + 2 || pz < mnZ || pz > mxZ) continue;
 
-            // Always refresh timer so tickSeats doesn't evict while ship is moving
-            if (managedSeats.containsKey(uid)) {
-                lastSeatMove.put(uid, System.currentTimeMillis());
+            lastShipMove.put(uid, System.currentTimeMillis());
+
+            if (!passengerAllowFlight.containsKey(uid)) {
+                passengerAllowFlight.put(uid, player.getAllowFlight());
+                passengerFlying.put(uid, player.isFlying());
+                player.setAllowFlight(true);
+                player.setFlying(true);
             }
 
-            if (player.getVehicle() != null) continue; // already seated (managed or GSit)
-
-            // Only seat players near/on the ship surface, not random players at same X/Z
-            int py = (int) Math.floor(pl.getY());
-            if (py < mnY || py > mxY + 2) continue;
-
-            lastSeatMove.put(uid, System.currentTimeMillis());
-            Location standLoc = pl.clone();
-            standLoc.setY(pl.getY() - SEAT_OFFSET_Y);
-            ArmorStand stand = world.spawn(standLoc, ArmorStand.class, as -> {
-                as.setVisible(false);
-                as.setGravity(false);
-                as.setSmall(true);
-                as.setInvulnerable(true);
-                as.setCollidable(false);
-            });
-            stand.addPassenger(player);
-            managedSeats.put(uid, stand);
+            final Location preMovePos = pl.clone();
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (!player.isOnline()) return;
+                player.teleport(preMovePos.clone().add(gdx, gdy, gdz),
+                        PlayerTeleportEvent.TeleportCause.PLUGIN);
+            }, 1L);
         }
 
-        // ── Move ArmorStand seats (GSit + our managed ones) ───────────────────
-        // LOWEST fires before Movecraft processes — player is still at old position.
-        // Capture ArmorStand pre-move location; 1 tick later teleport to oldLoc+delta.
+        // ── GSit: move ArmorStand seats with the craft ────────────────────────
         Map<Player, Object[]> seats = new HashMap<>();
         for (Player player : world.getPlayers()) {
             Entity vehicle = player.getVehicle();
