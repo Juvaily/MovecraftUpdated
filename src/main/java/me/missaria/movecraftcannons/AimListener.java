@@ -5,12 +5,10 @@ import at.pavlov.cannons.Cannons;
 import at.pavlov.cannons.Enum.InteractAction;
 import at.pavlov.cannons.aim.GunAngles;
 import at.pavlov.cannons.cannon.Cannon;
-import at.pavlov.cannons.cannon.CannonManager;
 import at.pavlov.cannons.event.CannonUseEvent;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
-import net.countercraft.movecraft.util.hitboxes.HitBox;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -28,7 +26,6 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +39,6 @@ public class AimListener implements Listener {
     private static final int    MAX_TICKS     = 100;
     private static final int    SAMPLE_TICKS  = 2;
 
-    // One trajectory color per facing direction
     private static final Map<BlockFace, Material> SIDE_COLOR = Map.of(
         BlockFace.NORTH, Material.LIME_STAINED_GLASS,
         BlockFace.SOUTH, Material.CYAN_STAINED_GLASS,
@@ -54,28 +50,26 @@ public class AimListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
 
-    private final Map<UUID, Map<BlockFace, Cannon>> aimGroups     = new ConcurrentHashMap<>();
-    private final Map<UUID, BukkitTask>             aimTasks      = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<BlockFace, Cannon>> aimGroups      = new ConcurrentHashMap<>();
+    private final Map<UUID, BukkitTask>             aimTasks       = new ConcurrentHashMap<>();
     private final Map<UUID, List<Location>>         sentTrajectory = new ConcurrentHashMap<>();
 
     public AimListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
     }
 
-    // ── Block default Cannons aiming via CannonUseEvent ───────────────────────
+    // ── Block default Cannons aiming ──────────────────────────────────────────
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     public void blockCannonsDefaultAim(CannonUseEvent event) {
-        InteractAction action = event.getAction();
-        if (action == InteractAction.adjustPlayer
-                || action == InteractAction.adjustAutoaim
-                || action == InteractAction.adjustSentry
-                || action == InteractAction.adjustOther) {
+        InteractAction a = event.getAction();
+        if (a == InteractAction.adjustPlayer || a == InteractAction.adjustAutoaim
+                || a == InteractAction.adjustSentry || a == InteractAction.adjustOther) {
             event.setCancelled(true);
         }
     }
 
-    // ── Toggle AIM on right-click CLOCK (no DC mode required) ────────────────
+    // ── Toggle AIM on right-click CLOCK ──────────────────────────────────────
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onClockClick(PlayerInteractEvent event) {
@@ -89,18 +83,15 @@ public class AimListener implements Listener {
         if (craft == null) return;
 
         event.setCancelled(true);
-
-        if (aimGroups.containsKey(player.getUniqueId())) {
-            stopAiming(player);
-        } else {
-            startAiming(player, craft);
-        }
+        if (aimGroups.containsKey(player.getUniqueId())) stopAiming(player);
+        else startAiming(player, craft);
     }
 
     // ── Start ─────────────────────────────────────────────────────────────────
 
     private void startAiming(Player player, PlayerCraft craft) {
-        List<Cannon> all = findCannonsOnCraft(craft);
+        // Use accurate hitbox-based cannon detection
+        List<Cannon> all = CannonUtils.findCannonsOnCraft(craft);
         if (all.isEmpty()) {
             player.sendMessage(Lang.msg("msg.no_cannons", player, NamedTextColor.YELLOW));
             return;
@@ -111,19 +102,12 @@ public class AimListener implements Listener {
             return;
         }
 
-        // Group by facing direction — one trajectory per side
+        // One representative cannon per facing direction for trajectory
         Map<BlockFace, Cannon> groups = new LinkedHashMap<>();
-        List<Cannon> ungrouped = new ArrayList<>();
         for (Cannon cannon : all) {
             BlockFace face = safeDir(cannon);
-            if (face != null) {
-                groups.putIfAbsent(face, cannon);
-            } else {
-                if (!groups.containsKey(null)) ungrouped.add(cannon);
-            }
+            groups.putIfAbsent(face, cannon);
         }
-        // Add one representative for ungrouped cannons
-        if (!ungrouped.isEmpty()) groups.put(null, ungrouped.get(0));
 
         UUID uid = player.getUniqueId();
         aimGroups.put(uid, groups);
@@ -139,7 +123,7 @@ public class AimListener implements Listener {
             float yaw     = loc.getYaw();
             float pitch   = loc.getPitch();
 
-            // Aim ALL cannons on the craft
+            // Aim ALL cannons
             for (Cannon cannon : all) {
                 try {
                     GunAngles angles = GunAngles.getGunAngle(cannon, yaw, pitch);
@@ -147,11 +131,13 @@ public class AimListener implements Listener {
                 } catch (Exception ignored) {}
             }
 
-            // Draw one trajectory per side
+            // Draw trajectory per side — skip sides whose facing angle is exceeded
             clearTrajectory(player);
             List<Location> allPoints = new ArrayList<>();
             for (Map.Entry<BlockFace, Cannon> entry : tracked.entrySet()) {
-                Material color = SIDE_COLOR.getOrDefault(entry.getKey(), FALLBACK_COLOR);
+                BlockFace face = entry.getKey();
+                if (face != null && !facingCompatible(face, yaw)) continue; // hide exceeded side
+                Material color = SIDE_COLOR.getOrDefault(face, FALLBACK_COLOR);
                 allPoints.addAll(drawTrajectory(player, entry.getValue(),
                         loc.getDirection().normalize(), color));
             }
@@ -161,6 +147,20 @@ public class AimListener implements Listener {
 
         aimTasks.put(uid, task);
         player.sendMessage(Lang.msg("msg.aim_on", player, NamedTextColor.GREEN, all.size()));
+    }
+
+    /**
+     * Returns true if the cannon facing direction is roughly compatible with the
+     * player's horizontal look direction (dot product > 0, i.e. angle < 90°).
+     */
+    private boolean facingCompatible(BlockFace face, float yaw) {
+        int fx = face.getModX();
+        int fz = face.getModZ();
+        if (fx == 0 && fz == 0) return true; // UP/DOWN or unknown — always show
+        double yawRad = Math.toRadians(yaw);
+        double px = -Math.sin(yawRad);
+        double pz =  Math.cos(yawRad);
+        return (fx * px + fz * pz) > 0;
     }
 
     // ── Trajectory ────────────────────────────────────────────────────────────
@@ -180,7 +180,6 @@ public class AimListener implements Listener {
         double x = start.getX(), y = start.getY(), z = start.getZ();
 
         List<Location> points = new ArrayList<>();
-
         for (int t = 0; t < MAX_TICKS; t++) {
             vy -= GRAVITY;
             x += vx; y += vy; z += vz;
@@ -204,9 +203,7 @@ public class AimListener implements Listener {
     private void clearTrajectory(Player player) {
         List<Location> prev = sentTrajectory.remove(player.getUniqueId());
         if (prev == null) return;
-        for (Location loc : prev) {
-            player.sendBlockChange(loc, loc.getBlock().getBlockData());
-        }
+        for (Location loc : prev) player.sendBlockChange(loc, loc.getBlock().getBlockData());
     }
 
     // ── Stop ──────────────────────────────────────────────────────────────────
@@ -217,17 +214,13 @@ public class AimListener implements Listener {
         if (task != null) task.cancel();
         boolean wasActive = aimGroups.remove(uid) != null;
         clearTrajectory(player);
-        if (wasActive && player.isOnline()) {
+        if (wasActive && player.isOnline())
             player.sendMessage(Lang.msg("msg.aim_off", player, NamedTextColor.YELLOW));
-        }
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
 
-    @EventHandler
-    public void onQuit(PlayerQuitEvent event) {
-        stopAiming(event.getPlayer());
-    }
+    @EventHandler public void onQuit(PlayerQuitEvent event) { stopAiming(event.getPlayer()); }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onCraftRelease(CraftReleaseEvent event) {
@@ -249,9 +242,9 @@ public class AimListener implements Listener {
             if (loc != null) return loc;
         } catch (Exception ignored) {}
         try {
-            var offset = cannon.getCannonPosition().getOffset();
+            var off = cannon.getCannonPosition().getOffset();
             World world = cannon.getWorldBukkit();
-            return new Location(world, offset.getX() + 0.5, offset.getY() + 1.5, offset.getZ() + 0.5);
+            return new Location(world, off.getX() + 0.5, off.getY() + 1.5, off.getZ() + 0.5);
         } catch (Exception ignored) {}
         return null;
     }
@@ -260,24 +253,6 @@ public class AimListener implements Listener {
         try { double v = cannon.getCannonballVelocity(); if (v > 0) return v; }
         catch (Exception ignored) {}
         return DEFAULT_SPEED;
-    }
-
-    private List<Cannon> findCannonsOnCraft(PlayerCraft craft) {
-        HitBox hitBox = craft.getHitBox();
-        double cx = (hitBox.getMinX() + hitBox.getMaxX()) / 2.0;
-        double cy = (hitBox.getMinY() + hitBox.getMaxY()) / 2.0;
-        double cz = (hitBox.getMinZ() + hitBox.getMaxZ()) / 2.0;
-        double dx = (hitBox.getMaxX() - hitBox.getMinX()) + 2;
-        double dy = (hitBox.getMaxY() - hitBox.getMinY()) + 2;
-        double dz = (hitBox.getMaxZ() - hitBox.getMinZ()) + 2;
-        Location center = new Location(craft.getWorld(), cx, cy, cz);
-        try {
-            HashSet<Cannon> found = CannonManager.getCannonsInBox(center, dx, dy, dz);
-            return found != null ? new ArrayList<>(found) : new ArrayList<>();
-        } catch (Exception e) {
-            plugin.getLogger().warning("AimListener: " + e.getMessage());
-            return new ArrayList<>();
-        }
     }
 
     private CannonsAPI getCannonsAPI() {

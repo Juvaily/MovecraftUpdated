@@ -13,7 +13,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
-import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -83,6 +82,13 @@ public class CraftMoveListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCraftDetect(CraftDetectEvent event) {
         Craft craft = event.getCraft();
+
+        // Auto-create any cannon designs found in the hitbox (no player click required)
+        if (craft instanceof net.countercraft.movecraft.craft.PlayerCraft pc) {
+            Bukkit.getScheduler().runTaskLater(plugin, () ->
+                CannonUtils.autoCreateCannons(pc, plugin.getLogger()), 5L);
+        }
+
         List<MovecraftLocation> list = waterPositions(craft);
         if (list.isEmpty()) return;
 
