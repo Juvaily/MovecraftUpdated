@@ -115,12 +115,11 @@ public class CraftMoveListener implements Listener {
         for (Player player : world.getPlayers()) {
             Entity vehicle = player.getVehicle();
             if (!(vehicle instanceof ArmorStand)) continue;
-            // Use player position for hitbox check (player is on the block surface)
+            // Check only X/Z — player sitting on a stair/floor may have Y below hitbox minY
             org.bukkit.Location pl = player.getLocation();
             int px = (int) Math.floor(pl.getX());
-            int py = (int) Math.floor(pl.getY());
             int pz = (int) Math.floor(pl.getZ());
-            if (px < mnX || px > mxX || py < mnY || py > mxY || pz < mnZ || pz > mxZ) continue;
+            if (px < mnX || px > mxX || pz < mnZ || pz > mxZ) continue;
             seats.put(player, new Object[]{vehicle, vehicle.getLocation().clone()});
         }
 
