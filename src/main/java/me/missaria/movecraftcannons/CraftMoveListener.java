@@ -6,6 +6,7 @@ import at.pavlov.cannons.cannon.data.CannonPosition;
 import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftSinkEvent;
+import net.countercraft.movecraft.events.CraftTeleportEntityEvent;
 import net.countercraft.movecraft.events.CraftTranslateEvent;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
 import net.countercraft.movecraft.MovecraftLocation;
@@ -13,6 +14,9 @@ import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -94,6 +98,22 @@ public class CraftMoveListener implements Listener {
         if (plugin.isDebug() && updated > 0) {
             plugin.getLogger().info("[debug] Updated " + updated + " cannon(s) on craft translate.");
         }
+    }
+
+    // ── GSit compatibility ────────────────────────────────────────────────────
+    // When a player is seated via GSit (riding an ArmorStand), Movecraft's
+    // teleport ejects them from the seat. We re-seat them on the next tick.
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCraftTeleportEntity(CraftTeleportEntityEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        Entity vehicle = player.getVehicle();
+        if (!(vehicle instanceof ArmorStand)) return;
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!vehicle.isValid()) return;
+            vehicle.teleport(player.getLocation());
+            vehicle.addPassenger(player);
+        }, 1L);
     }
 
     // ── Water fill ────────────────────────────────────────────────────────────

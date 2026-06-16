@@ -74,6 +74,8 @@ public class ShipMenuListener implements Listener {
     private final Map<UUID, SailGear>           sailGears     = new ConcurrentHashMap<>();
     // Manual cruise direction (used when gear is HALF or NONE)
     private final Map<UUID, CruiseDirection>    reducedDirs   = new ConcurrentHashMap<>();
+    // Base speed cached while craft is still cruising (before we stop it for reduced gears)
+    private final Map<UUID, Integer>            baseBpsCache  = new ConcurrentHashMap<>();
 
     public ShipMenuListener(MovecraftCannonsPlugin plugin, WindManager windManager) {
         this.plugin = plugin;
@@ -414,7 +416,7 @@ public class ShipMenuListener implements Listener {
     @SuppressWarnings("unchecked")
     private void buildSailButtons(Inventory inv, Consumer<Player>[] actions, Player player,
                                   PlayerCraft craft, SailGear current) {
-        int[] slots = {39, 40, 41};
+        int[] slots = {40, 41, 42};
         SailGear[] gears = {SailGear.FULL, SailGear.HALF, SailGear.NONE};
         for (int i = 0; i < 3; i++) {
             SailGear g = gears[i];
@@ -431,9 +433,9 @@ public class ShipMenuListener implements Listener {
             case NONE -> "menu.sail.none";
         };
         String loreKey = switch (gear) {
-            case FULL -> "menu.sail.full.lore";
-            case HALF -> "menu.sail.half.lore";
-            case NONE -> "menu.sail.none.lore";
+            case FULL -> "menu.sail.full_lore";
+            case HALF -> "menu.sail.half_lore";
+            case NONE -> "menu.sail.none_lore";
         };
         Material mat = switch (gear) {
             case FULL -> Material.WHITE_WOOL;
@@ -441,7 +443,7 @@ public class ShipMenuListener implements Listener {
             case NONE -> Material.GRAY_WOOL;
         };
         NamedTextColor color = active ? NamedTextColor.GREEN : NamedTextColor.GRAY;
-        String prefix = active ? "§a▶ " : "";
+        String prefix = active ? "▶ " : "";
         ItemStack is = new ItemStack(mat);
         ItemMeta m = is.getItemMeta();
         m.displayName(Component.text(prefix + Lang.get(nameKey, player))
@@ -457,9 +459,12 @@ public class ShipMenuListener implements Listener {
         SailGear prev = sailGears.getOrDefault(uid, SailGear.FULL);
         sailGears.put(uid, gear);
         if (gear == SailGear.FULL) {
+            baseBpsCache.remove(uid);
             CruiseDirection dir = reducedDirs.remove(uid);
             if (dir != null) { craft.setCruiseDirection(dir); craft.setCruising(true); }
         } else if (prev == SailGear.FULL) {
+            // Cache speed BEFORE stopping cruise so getSpeed() still returns correct value
+            baseBpsCache.put(uid, getBaseBps(craft));
             CruiseDirection cur = craft.getCruising() ? craft.getCruiseDirection() : null;
             craft.setCruising(false);
             if (cur != null && cur != CruiseDirection.NONE
@@ -488,7 +493,7 @@ public class ShipMenuListener implements Listener {
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
             if (craft == null) { toRemove.add(uid); continue; }
             SailGear gear = sailGears.getOrDefault(uid, SailGear.HALF);
-            int baseBps = getBaseBps(craft);
+            int baseBps = baseBpsCache.getOrDefault(uid, getBaseBps(craft));
             int move    = gear.apply(baseBps);
             int wind    = windManager.getEffect(entry.getValue());
             int total   = Math.max(0, move + wind);
@@ -534,6 +539,7 @@ public class ShipMenuListener implements Listener {
         UUID uid = pilot.getUniqueId();
         sailGears.remove(uid);
         reducedDirs.remove(uid);
+        baseBpsCache.remove(uid);
     }
 
     @EventHandler
@@ -541,6 +547,7 @@ public class ShipMenuListener implements Listener {
         UUID uid = event.getPlayer().getUniqueId();
         sailGears.remove(uid);
         reducedDirs.remove(uid);
+        baseBpsCache.remove(uid);
     }
 
     private Component loreComp(String text, NamedTextColor color) {
