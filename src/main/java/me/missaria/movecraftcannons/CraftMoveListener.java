@@ -14,8 +14,6 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
-import org.bukkit.entity.ArmorStand;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -27,7 +25,6 @@ import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -177,29 +174,7 @@ public class CraftMoveListener implements Listener {
             }, 1L);
         }
 
-        // ── GSit: move ArmorStand seats with the craft ────────────────────────
-        Map<Player, Object[]> seats = new HashMap<>();
-        for (Player player : world.getPlayers()) {
-            Entity vehicle = player.getVehicle();
-            if (!(vehicle instanceof ArmorStand)) continue;
-            Location pl = player.getLocation();
-            int px = (int) Math.floor(pl.getX());
-            int pz = (int) Math.floor(pl.getZ());
-            if (px < mnX || px > mxX || pz < mnZ || pz > mxZ) continue;
-            seats.put(player, new Object[]{vehicle, vehicle.getLocation().clone()});
-        }
 
-        if (!seats.isEmpty()) {
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                for (Map.Entry<Player, Object[]> e : seats.entrySet()) {
-                    Entity vehicle = (Entity) e.getValue()[0];
-                    Location oldLoc = (Location) e.getValue()[1];
-                    if (!vehicle.isValid()) continue;
-                    vehicle.teleport(oldLoc.clone().add(gdx, gdy, gdz));
-                    vehicle.addPassenger(e.getKey());
-                }
-            }, 1L);
-        }
     }
 
     // ── Water fill ────────────────────────────────────────────────────────────
