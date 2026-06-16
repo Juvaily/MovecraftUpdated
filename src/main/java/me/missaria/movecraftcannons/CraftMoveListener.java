@@ -134,33 +134,38 @@ public class CraftMoveListener implements Listener {
         final int mnZ = oldBox.getMinZ(), mxZ = oldBox.getMaxZ();
 
         // ── Auto-seat standing passengers ─────────────────────────────────────
-        // Seat any non-DC, non-vehicle player within the hitbox onto an invisible
-        // small ArmorStand. The existing ArmorStand block below then moves it.
+        // Check X/Z only (same as GSit block) — Y differs when already riding.
         for (Player player : world.getPlayers()) {
-            if (player.getVehicle() != null) continue;
-            if (WasdListener.DC_PILOTS.contains(player.getUniqueId())) continue;
+            UUID uid = player.getUniqueId();
+            if (WasdListener.DC_PILOTS.contains(uid)) continue;
             Location pl = player.getLocation();
             int px = (int) Math.floor(pl.getX());
-            int py = (int) Math.floor(pl.getY());
             int pz = (int) Math.floor(pl.getZ());
-            if (px < mnX || px > mxX || py < mnY || py > mxY + 2 || pz < mnZ || pz > mxZ) continue;
+            if (px < mnX || px > mxX || pz < mnZ || pz > mxZ) continue;
 
-            UUID uid = player.getUniqueId();
-            lastSeatMove.put(uid, System.currentTimeMillis());
-
-            if (!managedSeats.containsKey(uid)) {
-                Location standLoc = pl.clone();
-                standLoc.setY(pl.getY() - SEAT_OFFSET_Y);
-                ArmorStand stand = world.spawn(standLoc, ArmorStand.class, as -> {
-                    as.setVisible(false);
-                    as.setGravity(false);
-                    as.setSmall(true);
-                    as.setInvulnerable(true);
-                    as.setCollidable(false);
-                });
-                stand.addPassenger(player);
-                managedSeats.put(uid, stand);
+            // Always refresh timer so tickSeats doesn't evict while ship is moving
+            if (managedSeats.containsKey(uid)) {
+                lastSeatMove.put(uid, System.currentTimeMillis());
             }
+
+            if (player.getVehicle() != null) continue; // already seated (managed or GSit)
+
+            // Only seat players near/on the ship surface, not random players at same X/Z
+            int py = (int) Math.floor(pl.getY());
+            if (py < mnY || py > mxY + 2) continue;
+
+            lastSeatMove.put(uid, System.currentTimeMillis());
+            Location standLoc = pl.clone();
+            standLoc.setY(pl.getY() - SEAT_OFFSET_Y);
+            ArmorStand stand = world.spawn(standLoc, ArmorStand.class, as -> {
+                as.setVisible(false);
+                as.setGravity(false);
+                as.setSmall(true);
+                as.setInvulnerable(true);
+                as.setCollidable(false);
+            });
+            stand.addPassenger(player);
+            managedSeats.put(uid, stand);
         }
 
         // ── Move ArmorStand seats (GSit + our managed ones) ───────────────────
