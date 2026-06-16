@@ -10,6 +10,7 @@ import net.countercraft.movecraft.events.CraftTranslateEvent;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
 import net.countercraft.movecraft.MovecraftLocation;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -19,7 +20,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.vehicle.VehicleExitEvent;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
@@ -34,23 +36,55 @@ public class CraftMoveListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
 
-    // Positions at Y≤waterLevel recorded on craft detect, used for delayed water restore.
     private final Map<UUID, List<MovecraftLocation>> spawnWaterPos = new ConcurrentHashMap<>();
+
+    // Auto-managed seats for passengers (non-DC, non-GSit) on moving crafts
+    private final Map<UUID, ArmorStand> managedSeats  = new ConcurrentHashMap<>();
+    private final Map<UUID, Long>       lastSeatMove  = new ConcurrentHashMap<>();
+
+    // Y offset: small ArmorStand mount height so the player appears at their original feet position
+    private static final double SEAT_OFFSET_Y = 1.18;
 
     public CraftMoveListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
+        // Unseat players 600 ms after the craft stops moving
+        Bukkit.getScheduler().runTaskTimer(plugin, this::tickSeats, 10L, 10L);
     }
 
-    /**
-     * ROOT CAUSE: Cannons 3.4.3 TranslationListener calls cannon.move(Vector),
-     * which does NOT exist → NoSuchMethodError → cannon offset never updated →
-     * Cannons can't find the cannon at the new block location → creates a fresh
-     * cannon with zeroed reload/ammo/temperature state.
-     *
-     * FIX: iterate all cannons via getCannonList() and match by stored offset position
-     * against the old hitbox. CraftTranslateEvent fires BEFORE blocks physically move,
-     * so the old hitbox positions are still valid for lookup.
-     */
+    // ── Managed seat lifecycle ────────────────────────────────────────────────
+
+    private void tickSeats() {
+        long now = System.currentTimeMillis();
+        new ArrayList<>(managedSeats.keySet()).forEach(uid -> {
+            if (now - lastSeatMove.getOrDefault(uid, 0L) > 600L) {
+                unseatPlayer(uid);
+            }
+        });
+    }
+
+    private void unseatPlayer(UUID uid) {
+        ArmorStand stand = managedSeats.remove(uid);
+        lastSeatMove.remove(uid);
+        if (stand != null && stand.isValid()) stand.remove();
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        unseatPlayer(event.getPlayer().getUniqueId());
+    }
+
+    @EventHandler
+    public void onVehicleExit(VehicleExitEvent event) {
+        if (!(event.getExited() instanceof Player p)) return;
+        UUID uid = p.getUniqueId();
+        if (managedSeats.containsKey(uid)) {
+            // Remove on next tick so the event fully resolves first
+            Bukkit.getScheduler().runTaskLater(plugin, () -> unseatPlayer(uid), 1L);
+        }
+    }
+
+    // ── Craft translate ───────────────────────────────────────────────────────
+
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onCraftTranslate(CraftTranslateEvent event) {
         HitBox oldBox = event.getOldHitBox();
@@ -66,58 +100,77 @@ public class CraftMoveListener implements Listener {
         UUID worldUID = world.getUID();
         Vector translation = new Vector(dx, dy, dz);
 
+        // ── Cannons ───────────────────────────────────────────────────────────
         Collection<Cannon> allCannons = getCannons();
-        if (allCannons == null || allCannons.isEmpty()) return;
-
-        int updated = 0;
-        for (Cannon cannon : allCannons) {
-            try {
-                CannonPosition pos = cannon.getCannonPosition();
-                if (!worldUID.equals(pos.getWorld())) continue;
-
-                Vector offset = pos.getOffset();
-                MovecraftLocation mloc = new MovecraftLocation(
-                        (int) Math.round(offset.getX()),
-                        (int) Math.round(offset.getY()),
-                        (int) Math.round(offset.getZ())
-                );
-                if (!oldBox.contains(mloc)) continue;
-
-                pos.setOffset(offset.clone().add(translation));
-                cannon.setUpdated(true);
-                updated++;
-
-                if (plugin.isDebug()) {
-                    plugin.getLogger().info("[debug] Cannon '" + cannon.getCannonDesign().getDesignID()
-                            + "' moved by (" + dx + "," + dy + "," + dz + ")");
+        if (allCannons != null && !allCannons.isEmpty()) {
+            int updated = 0;
+            for (Cannon cannon : allCannons) {
+                try {
+                    CannonPosition pos = cannon.getCannonPosition();
+                    if (!worldUID.equals(pos.getWorld())) continue;
+                    Vector offset = pos.getOffset();
+                    MovecraftLocation mloc = new MovecraftLocation(
+                            (int) Math.round(offset.getX()),
+                            (int) Math.round(offset.getY()),
+                            (int) Math.round(offset.getZ()));
+                    if (!oldBox.contains(mloc)) continue;
+                    pos.setOffset(offset.clone().add(translation));
+                    cannon.setUpdated(true);
+                    updated++;
+                    if (plugin.isDebug())
+                        plugin.getLogger().info("[debug] Cannon '" + cannon.getCannonDesign().getDesignID()
+                                + "' moved by (" + dx + "," + dy + "," + dz + ")");
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Error updating cannon position: " + e.getMessage());
                 }
-            } catch (Exception e) {
-                plugin.getLogger().warning("Error updating cannon position: " + e.getMessage());
             }
+            if (plugin.isDebug() && updated > 0)
+                plugin.getLogger().info("[debug] Updated " + updated + " cannon(s) on craft translate.");
         }
 
-        if (plugin.isDebug() && updated > 0) {
-            plugin.getLogger().info("[debug] Updated " + updated + " cannon(s) on craft translate.");
-        }
-
-        // ── GSit: move ArmorStand seats with the craft ────────────────────────
-        // LOWEST fires before Movecraft processes anything — player is still seated.
-        // Check craft membership via the PLAYER's position (ArmorStand sits 1 block
-        // below the surface and may be outside the hitbox Y range).
-        // Capture the ArmorStand's exact pre-move location; in the next tick
-        // teleport it to oldLoc+delta regardless of whether Movecraft moved it.
         final int gdx = dx, gdy = dy, gdz = dz;
         final int mnX = oldBox.getMinX(), mxX = oldBox.getMaxX();
         final int mnY = oldBox.getMinY(), mxY = oldBox.getMaxY();
         final int mnZ = oldBox.getMinZ(), mxZ = oldBox.getMaxZ();
 
-        // player → [vehicle, oldVehicleLocation]
+        // ── Auto-seat standing passengers ─────────────────────────────────────
+        // Seat any non-DC, non-vehicle player within the hitbox onto an invisible
+        // small ArmorStand. The existing ArmorStand block below then moves it.
+        for (Player player : world.getPlayers()) {
+            if (player.getVehicle() != null) continue;
+            if (WasdListener.DC_PILOTS.contains(player.getUniqueId())) continue;
+            Location pl = player.getLocation();
+            int px = (int) Math.floor(pl.getX());
+            int py = (int) Math.floor(pl.getY());
+            int pz = (int) Math.floor(pl.getZ());
+            if (px < mnX || px > mxX || py < mnY || py > mxY + 2 || pz < mnZ || pz > mxZ) continue;
+
+            UUID uid = player.getUniqueId();
+            lastSeatMove.put(uid, System.currentTimeMillis());
+
+            if (!managedSeats.containsKey(uid)) {
+                Location standLoc = pl.clone();
+                standLoc.setY(pl.getY() - SEAT_OFFSET_Y);
+                ArmorStand stand = world.spawn(standLoc, ArmorStand.class, as -> {
+                    as.setVisible(false);
+                    as.setGravity(false);
+                    as.setSmall(true);
+                    as.setInvulnerable(true);
+                    as.setCollidable(false);
+                });
+                stand.addPassenger(player);
+                managedSeats.put(uid, stand);
+            }
+        }
+
+        // ── Move ArmorStand seats (GSit + our managed ones) ───────────────────
+        // LOWEST fires before Movecraft processes — player is still at old position.
+        // Capture ArmorStand pre-move location; 1 tick later teleport to oldLoc+delta.
         Map<Player, Object[]> seats = new HashMap<>();
         for (Player player : world.getPlayers()) {
             Entity vehicle = player.getVehicle();
             if (!(vehicle instanceof ArmorStand)) continue;
-            // Check only X/Z — player sitting on a stair/floor may have Y below hitbox minY
-            org.bukkit.Location pl = player.getLocation();
+            Location pl = player.getLocation();
             int px = (int) Math.floor(pl.getX());
             int pz = (int) Math.floor(pl.getZ());
             if (px < mnX || px > mxX || pz < mnZ || pz > mxZ) continue;
@@ -127,37 +180,11 @@ public class CraftMoveListener implements Listener {
         if (!seats.isEmpty()) {
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 for (Map.Entry<Player, Object[]> e : seats.entrySet()) {
-                    Entity vehicle  = (Entity) e.getValue()[0];
-                    org.bukkit.Location oldLoc = (org.bukkit.Location) e.getValue()[1];
+                    Entity vehicle = (Entity) e.getValue()[0];
+                    Location oldLoc = (Location) e.getValue()[1];
                     if (!vehicle.isValid()) continue;
-                    // Always place seat at oldLoc+delta — correct regardless of
-                    // whether Movecraft already moved it or not.
                     vehicle.teleport(oldLoc.clone().add(gdx, gdy, gdz));
                     vehicle.addPassenger(e.getKey());
-                }
-            }, 1L);
-        }
-
-        // ── Freeze standing passengers: teleport with the craft ───────────────
-        // DC pilots already fly in place; seated players handled above.
-        Map<Player, org.bukkit.Location> standing = new HashMap<>();
-        for (Player player : world.getPlayers()) {
-            if (player.getVehicle() != null) continue;
-            if (WasdListener.DC_PILOTS.contains(player.getUniqueId())) continue;
-            org.bukkit.Location pl = player.getLocation();
-            int px = (int) Math.floor(pl.getX());
-            int py = (int) Math.floor(pl.getY());
-            int pz = (int) Math.floor(pl.getZ());
-            if (px < mnX || px > mxX || py < mnY || py > mxY + 2 || pz < mnZ || pz > mxZ) continue;
-            standing.put(player, pl.clone());
-        }
-        if (!standing.isEmpty()) {
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                for (Map.Entry<Player, org.bukkit.Location> e : standing.entrySet()) {
-                    Player p = e.getKey();
-                    if (!p.isOnline()) continue;
-                    p.teleport(e.getValue().clone().add(gdx, gdy, gdz),
-                            PlayerTeleportEvent.TeleportCause.PLUGIN);
                 }
             }, 1L);
         }
@@ -165,8 +192,6 @@ public class CraftMoveListener implements Listener {
 
     // ── Water fill ────────────────────────────────────────────────────────────
 
-    // On detect: save the sub-waterline positions of the ship's spawn footprint.
-    // After 5 minutes the ship has likely moved, so fill those positions with water.
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCraftDetect(CraftDetectEvent event) {
         Craft craft = event.getCraft();
@@ -180,15 +205,14 @@ public class CraftMoveListener implements Listener {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             refillWaterAt(spawnWaterPos.getOrDefault(uid, list), world);
             spawnWaterPos.remove(uid);
-        }, 20L * 60 * 5); // 5 minutes
+        }, 20L * 60 * 5);
     }
 
-    // On sink: fill the crash position after 5 minutes; cancel the spawn fill.
     @EventHandler(priority = EventPriority.MONITOR)
     public void onCraftSink(CraftSinkEvent event) {
         Craft craft = event.getCraft();
         List<MovecraftLocation> list = waterPositions(craft);
-        spawnWaterPos.remove(craft.getUUID()); // spawn fill no longer relevant
+        spawnWaterPos.remove(craft.getUUID());
         if (list.isEmpty()) return;
 
         World world = craft.getWorld();
@@ -212,7 +236,6 @@ public class CraftMoveListener implements Listener {
         }
     }
 
-    /** Get all cannons from CannonManager's internal map (indexed by UUID). */
     @SuppressWarnings("unchecked")
     private Collection<Cannon> getCannons() {
         try {
