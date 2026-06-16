@@ -100,33 +100,39 @@ public class CraftMoveListener implements Listener {
         }
 
         // ── GSit: move ArmorStand seats with the craft ────────────────────────
-        // LOWEST priority fires before Movecraft processes anything, so the player
-        // is still riding the ArmorStand. Capture player→seat pairs here, then
-        // in the next tick (after Movecraft has ejected+teleported the player)
-        // move the seat by the same delta and re-seat the player.
+        // LOWEST fires before Movecraft processes anything — player is still seated.
+        // Check craft membership via the PLAYER's position (ArmorStand sits 1 block
+        // below the surface and may be outside the hitbox Y range).
+        // Capture the ArmorStand's exact pre-move location; in the next tick
+        // teleport it to oldLoc+delta regardless of whether Movecraft moved it.
+        final int gdx = dx, gdy = dy, gdz = dz;
         final int mnX = oldBox.getMinX(), mxX = oldBox.getMaxX();
         final int mnY = oldBox.getMinY(), mxY = oldBox.getMaxY();
         final int mnZ = oldBox.getMinZ(), mxZ = oldBox.getMaxZ();
 
-        Map<Player, Entity> seats = new HashMap<>();
+        // player → [vehicle, oldVehicleLocation]
+        Map<Player, Object[]> seats = new HashMap<>();
         for (Player player : world.getPlayers()) {
             Entity vehicle = player.getVehicle();
             if (!(vehicle instanceof ArmorStand)) continue;
-            org.bukkit.Location vl = vehicle.getLocation();
-            int vx = (int) Math.floor(vl.getX());
-            int vy = (int) Math.floor(vl.getY());
-            int vz = (int) Math.floor(vl.getZ());
-            if (vx < mnX || vx > mxX || vy < mnY || vy > mxY || vz < mnZ || vz > mxZ) continue;
-            seats.put(player, vehicle);
+            // Use player position for hitbox check (player is on the block surface)
+            org.bukkit.Location pl = player.getLocation();
+            int px = (int) Math.floor(pl.getX());
+            int py = (int) Math.floor(pl.getY());
+            int pz = (int) Math.floor(pl.getZ());
+            if (px < mnX || px > mxX || py < mnY || py > mxY || pz < mnZ || pz > mxZ) continue;
+            seats.put(player, new Object[]{vehicle, vehicle.getLocation().clone()});
         }
 
         if (!seats.isEmpty()) {
-            // Movecraft already teleports the ArmorStand (it's inside the hitbox).
-            // We only need to re-seat the player after Movecraft ejects them.
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                for (Map.Entry<Player, Entity> e : seats.entrySet()) {
-                    Entity vehicle = e.getValue();
+                for (Map.Entry<Player, Object[]> e : seats.entrySet()) {
+                    Entity vehicle  = (Entity) e.getValue()[0];
+                    org.bukkit.Location oldLoc = (org.bukkit.Location) e.getValue()[1];
                     if (!vehicle.isValid()) continue;
+                    // Always place seat at oldLoc+delta — correct regardless of
+                    // whether Movecraft already moved it or not.
+                    vehicle.teleport(oldLoc.clone().add(gdx, gdy, gdz));
                     vehicle.addPassenger(e.getKey());
                 }
             }, 1L);
