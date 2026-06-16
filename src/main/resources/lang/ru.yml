@@ -91,7 +91,22 @@ wind.strength.0:  "Штиль"
 wind.strength.1:  "Слабый ветер"
 wind.strength.2:  "Сильный ветер"
 wind.strength.3:  "Штормовой ветер"
+wind.dir.north:   "Север"
+wind.dir.south:   "Юг"
+wind.dir.east:    "Восток"
+wind.dir.west:    "Запад"
 wind.change:      "§b⛵ §7Период {0}§8: {1}"
+
+# ── Wind compass in ship menu ──────────────────────────────────────────────────
+menu.wind.period:   "Период {0}"
+menu.wind.north:    "Север"
+menu.wind.south:    "Юг"
+menu.wind.east:     "Восток"
+menu.wind.west:     "Запад"
+menu.wind.tail:     "+{0} б/с попутный"
+menu.wind.head:     "-{0} б/с встречный"
+menu.wind.calm_eff: "-1 б/с всегда"
+menu.wind.no_eff:   "Нет эффекта"
 
 # ── Health bar ────────────────────────────────────────────────────────────────
 health.sinking:   "☠ Тонет!"

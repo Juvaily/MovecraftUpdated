@@ -10,6 +10,7 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
     private static MovecraftCannonsPlugin instance;
     private boolean debug;
     private ShipMenuListener shipMenu;
+    private WindManager windManager;
 
     @Override
     public void onEnable() {
@@ -21,10 +22,10 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(new CraftMoveListener(this), this);
         getServer().getPluginManager().registerEvents(new HealthBarListener(this), this);
-        WindManager windManager = new WindManager(this);
+        windManager = new WindManager(this);
         getServer().getPluginManager().registerEvents(new WasdListener(this, windManager), this);
         getServer().getPluginManager().registerEvents(new CommandBlockListener(), this);
-        shipMenu = new ShipMenuListener(this);
+        shipMenu = new ShipMenuListener(this, windManager);
         getServer().getPluginManager().registerEvents(shipMenu, this);
 
         getLogger().info("MovecraftCannons enabled.");

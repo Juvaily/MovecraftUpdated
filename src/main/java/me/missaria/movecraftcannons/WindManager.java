@@ -142,19 +142,19 @@ public class WindManager {
     public Direction getDirection() { return direction; }
     public int getPeriodNumber() { return period + 1; }
 
-    /** Colored legacy-code string for server broadcasts (server language). */
+    /** Colored string for server broadcasts — direction shown as word (server language). */
     public String getStrengthDisplay() {
         int s = getStrength();
         String name = colorPrefix(s) + Lang.get("wind.strength." + s);
-        if (s >= 2) name += " " + direction.arrow();
+        if (s >= 2) name += " §7" + Lang.get("wind.dir." + direction.name().toLowerCase());
         return name;
     }
 
-    /** Colored legacy-code string for a specific player's scoreboard. */
+    /** Colored string for player's scoreboard — direction shown as arrow + word. */
     public String getStrengthDisplay(Player player) {
         int s = getStrength();
         String name = colorPrefix(s) + Lang.get("wind.strength." + s, player);
-        if (s >= 2) name += " " + direction.arrow();
+        if (s >= 2) name += " " + direction.arrow() + Lang.get("wind.dir." + direction.name().toLowerCase(), player);
         return name;
     }
 

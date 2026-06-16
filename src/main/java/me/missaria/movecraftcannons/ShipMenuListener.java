@@ -55,14 +55,16 @@ import org.bukkit.scheduler.BukkitTask;
 public class ShipMenuListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
+    private final WindManager windManager;
 
     // Per-player: slot → action to execute on click
     private final Map<UUID, Consumer<Player>[]> menuActions   = new ConcurrentHashMap<>();
     // Running repair tasks per player
     private final Map<UUID, BukkitTask>         activeRepairs = new ConcurrentHashMap<>();
 
-    public ShipMenuListener(MovecraftCannonsPlugin plugin) {
+    public ShipMenuListener(MovecraftCannonsPlugin plugin, WindManager windManager) {
         this.plugin = plugin;
+        this.windManager = windManager;
     }
 
     // ── Open menu: right-click BOOK while piloting ─────────────────────────────
@@ -124,11 +126,11 @@ public class ShipMenuListener implements Listener {
     @SuppressWarnings("unchecked")
     private void openMenu(Player player, PlayerCraft craft) {
         ShipMenuHolder holder = new ShipMenuHolder();
-        Inventory inv = Bukkit.createInventory(holder, 27,
+        Inventory inv = Bukkit.createInventory(holder, 54,
                 Component.text("⚓ " + craftTitle(craft)).color(NamedTextColor.DARK_AQUA));
         holder.setInventory(inv);
 
-        Consumer<Player>[] actions = new Consumer[27];
+        Consumer<Player>[] actions = new Consumer[54];
         CruiseDirection curDir = craft.getCruising() ? craft.getCruiseDirection() : CruiseDirection.NONE;
 
         // Directions relative to player yaw
@@ -276,8 +278,114 @@ public class ShipMenuListener implements Listener {
             si++;
         }
 
+        buildWindCompass(inv, player);
+
         menuActions.put(player.getUniqueId(), actions);
         player.openInventory(inv);
+    }
+
+    // ── Wind compass (rows 3-5, slots 27-53) ─────────────────────────────────
+    //
+    //  Layout (row 3 = slots 27-35, row 4 = 36-44, row 5 = 45-53):
+    //
+    //   [bg][bg][bg][bg][ N ][bg][bg][bg][bg]   27-35
+    //   [per][bg][bg][ W ][STR][ E ][bg][bg][bg] 36-44
+    //   [bg][bg][bg][bg][ S ][bg][bg][bg][bg]   45-53
+
+    private void buildWindCompass(Inventory inv, Player player) {
+        int s = windManager.getStrength();
+        WindManager.Direction windDir = s >= 2 ? windManager.getDirection() : null;
+
+        // Fill background
+        ItemStack bg = windBgPane();
+        int[] special = {31, 36, 39, 40, 41, 49};
+        java.util.Set<Integer> skip = new java.util.HashSet<>();
+        for (int cs : special) skip.add(cs);
+        for (int slot = 27; slot < 54; slot++) {
+            if (!skip.contains(slot)) inv.setItem(slot, bg);
+        }
+
+        // Period display (slot 36)
+        ItemStack period = new ItemStack(Material.PAPER);
+        ItemMeta pm = period.getItemMeta();
+        pm.displayName(Component.text(Lang.get("menu.wind.period", player, windManager.getPeriodNumber()))
+                .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+        period.setItemMeta(pm);
+        inv.setItem(36, period);
+
+        // Strength center (slot 40)
+        inv.setItem(40, windStrengthItem(s, player));
+
+        // Directional indicators
+        placeWindDir(inv, 31, WindManager.Direction.NORTH, windDir, player);
+        placeWindDir(inv, 39, WindManager.Direction.WEST,  windDir, player);
+        placeWindDir(inv, 41, WindManager.Direction.EAST,  windDir, player);
+        placeWindDir(inv, 49, WindManager.Direction.SOUTH, windDir, player);
+    }
+
+    private ItemStack windBgPane() {
+        ItemStack is = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.empty());
+        is.setItemMeta(m);
+        return is;
+    }
+
+    private ItemStack windStrengthItem(int strength, Player player) {
+        Material mat;
+        NamedTextColor color;
+        if      (strength == 0) { mat = Material.LIGHT_BLUE_STAINED_GLASS_PANE; color = NamedTextColor.AQUA; }
+        else if (strength == 1) { mat = Material.WHITE_STAINED_GLASS_PANE;       color = NamedTextColor.GRAY; }
+        else if (strength == 2) { mat = Material.YELLOW_STAINED_GLASS_PANE;      color = NamedTextColor.YELLOW; }
+        else                    { mat = Material.RED_STAINED_GLASS_PANE;          color = NamedTextColor.RED; }
+
+        String name = Lang.get("wind.strength." + strength, player);
+        List<Component> lore = new ArrayList<>();
+        if (strength == 0) {
+            lore.add(loreComp(Lang.get("menu.wind.calm_eff", player), NamedTextColor.RED));
+        } else if (strength == 1) {
+            lore.add(loreComp(Lang.get("menu.wind.no_eff", player), NamedTextColor.GRAY));
+        } else {
+            int blocks = strength == 2 ? 2 : 4;
+            lore.add(loreComp(Lang.get("menu.wind.tail", player, blocks), NamedTextColor.GREEN));
+            lore.add(loreComp(Lang.get("menu.wind.head", player, blocks), NamedTextColor.RED));
+        }
+
+        ItemStack is = new ItemStack(mat);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text(name).color(color).decoration(TextDecoration.ITALIC, false));
+        m.lore(lore);
+        is.setItemMeta(m);
+        return is;
+    }
+
+    private void placeWindDir(Inventory inv, int slot, WindManager.Direction dir,
+                              WindManager.Direction windDir, Player player) {
+        String arrow = switch (dir) {
+            case NORTH -> "↑";
+            case SOUTH -> "↓";
+            case EAST  -> "→";
+            case WEST  -> "←";
+        };
+        String label = arrow + " " + Lang.get("menu.wind." + dir.name().toLowerCase(), player);
+        boolean active = dir == windDir;
+        ItemStack is;
+        ItemMeta m;
+        if (active) {
+            is = new ItemStack(Material.ARROW);
+            m = is.getItemMeta();
+            m.displayName(Component.text(label).color(NamedTextColor.YELLOW).decoration(TextDecoration.ITALIC, false));
+        } else {
+            is = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+            m = is.getItemMeta();
+            m.displayName(Component.text(label).color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        }
+        is.setItemMeta(m);
+        inv.setItem(slot, is);
+    }
+
+    private Component loreComp(String text, NamedTextColor color) {
+        return Component.text(text).color(color).decoration(TextDecoration.ITALIC, false);
     }
 
     // ── Handle clicks ──────────────────────────────────────────────────────────
@@ -289,7 +397,7 @@ public class ShipMenuListener implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
 
         int slot = event.getRawSlot();
-        if (slot < 0 || slot >= 27) return;
+        if (slot < 0 || slot >= 54) return;
 
         Consumer<Player>[] actions = menuActions.get(player.getUniqueId());
         if (actions == null || slot >= actions.length || actions[slot] == null) return;
