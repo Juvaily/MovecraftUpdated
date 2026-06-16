@@ -13,6 +13,8 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -21,6 +23,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -31,16 +34,23 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class AimListener implements Listener {
 
+    private static final double GRAVITY        = 0.05;   // blocks/tick²
+    private static final double DEFAULT_SPEED  = 3.0;    // blocks/tick fallback
+    private static final int    MAX_TICKS      = 100;    // max trajectory ticks
+    private static final int    SAMPLE_TICKS   = 2;      // record a point every N ticks
+
     private final MovecraftCannonsPlugin plugin;
 
-    private final Map<UUID, List<Cannon>> aimCannons = new ConcurrentHashMap<>();
-    private final Map<UUID, BukkitTask>   aimTasks   = new ConcurrentHashMap<>();
+    private final Map<UUID, List<Cannon>>   aimCannons    = new ConcurrentHashMap<>();
+    private final Map<UUID, BukkitTask>     aimTasks      = new ConcurrentHashMap<>();
+    // Blocks sent as fake glass last tick — cleared before each new trajectory draw
+    private final Map<UUID, List<Location>> sentTrajectory = new ConcurrentHashMap<>();
 
     public AimListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
     }
 
-    // ── Toggle AIM on right-click CLOCK while piloting ────────────────────────
+    // ── Toggle on right-click CLOCK (no DC mode required) ────────────────────
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onClockClick(PlayerInteractEvent event) {
@@ -50,8 +60,10 @@ public class AimListener implements Listener {
         if (item == null || item.getType() != Material.CLOCK) return;
 
         Player player = event.getPlayer();
+
+        // Must be piloting some craft (DC mode NOT required)
         PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
-        if (craft == null || !craft.getPilotLocked()) return;
+        if (craft == null) return;
 
         event.setCancelled(true);
 
@@ -62,7 +74,7 @@ public class AimListener implements Listener {
         }
     }
 
-    // ── Start: collect cannons, launch update task ────────────────────────────
+    // ── Start ─────────────────────────────────────────────────────────────────
 
     private void startAiming(Player player, PlayerCraft craft) {
         List<Cannon> cannons = findCannonsOnCraft(craft);
@@ -70,7 +82,6 @@ public class AimListener implements Listener {
             player.sendMessage(Lang.msg("msg.no_cannons", player, NamedTextColor.YELLOW));
             return;
         }
-
         CannonsAPI api = getCannonsAPI();
         if (api == null) {
             player.sendMessage(Lang.msg("msg.cannons_unavailable", player, NamedTextColor.RED));
@@ -81,44 +92,104 @@ public class AimListener implements Listener {
         aimCannons.put(uid, cannons);
 
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            // Auto-stop if player left DC mode
             PlayerCraft current = CraftManager.getInstance().getCraftByPlayer(player);
-            if (!player.isOnline() || current == null || !current.getPilotLocked()) {
+            if (!player.isOnline() || current == null) {
                 stopAiming(player);
                 return;
             }
             List<Cannon> tracked = aimCannons.get(uid);
             if (tracked == null) return;
 
-            Location loc = player.getLocation();
-            float yaw   = loc.getYaw();
-            float pitch = loc.getPitch();
+            Location loc  = player.getLocation();
+            float yaw     = loc.getYaw();
+            float pitch   = loc.getPitch();
 
+            // Update cannon angles
             for (Cannon cannon : tracked) {
                 try {
                     GunAngles angles = GunAngles.getGunAngle(cannon, yaw, pitch);
                     api.setCannonAngle(cannon, angles.getHorizontal(), angles.getVertical());
                 } catch (Exception ignored) {}
             }
+
+            // Draw trajectory for the first cannon
+            clearTrajectory(player);
+            Cannon first = tracked.get(0);
+            drawTrajectory(player, first, loc.getDirection().normalize());
+
         }, 0L, 2L);
 
         aimTasks.put(uid, task);
         player.sendMessage(Lang.msg("msg.aim_on", player, NamedTextColor.GREEN, cannons.size()));
     }
 
-    // ── Stop: cancel task, notify ─────────────────────────────────────────────
+    // ── Trajectory ────────────────────────────────────────────────────────────
+
+    private void drawTrajectory(Player player, Cannon cannon, Vector direction) {
+        // Starting position: muzzle tip of the cannon
+        Location start = muzzleLocation(cannon);
+        if (start == null) return;
+        World world = start.getWorld();
+        if (world == null) return;
+
+        double speed = cannonSpeed(cannon);
+        double vx = direction.getX() * speed;
+        double vy = direction.getY() * speed;
+        double vz = direction.getZ() * speed;
+        double x = start.getX(), y = start.getY(), z = start.getZ();
+
+        List<Location> points = new ArrayList<>();
+
+        for (int t = 0; t < MAX_TICKS; t++) {
+            vy -= GRAVITY;
+            x += vx; y += vy; z += vz;
+
+            int bx = (int) Math.floor(x);
+            int by = (int) Math.floor(y);
+            int bz = (int) Math.floor(z);
+
+            Block block = world.getBlockAt(bx, by, bz);
+
+            if (block.getType().isSolid()) {
+                // Impact marker — red glass
+                Location impactLoc = new Location(world, bx, by, bz);
+                player.sendBlockChange(impactLoc, Material.RED_STAINED_GLASS.createBlockData());
+                points.add(impactLoc);
+                break;
+            }
+
+            if (t % SAMPLE_TICKS == 0) {
+                Location pt = new Location(world, bx, by, bz);
+                player.sendBlockChange(pt, Material.LIME_STAINED_GLASS.createBlockData());
+                points.add(pt);
+            }
+        }
+
+        sentTrajectory.put(player.getUniqueId(), points);
+    }
+
+    private void clearTrajectory(Player player) {
+        List<Location> prev = sentTrajectory.remove(player.getUniqueId());
+        if (prev == null) return;
+        for (Location loc : prev) {
+            player.sendBlockChange(loc, loc.getBlock().getBlockData());
+        }
+    }
+
+    // ── Stop ──────────────────────────────────────────────────────────────────
 
     public void stopAiming(Player player) {
         UUID uid = player.getUniqueId();
         BukkitTask task = aimTasks.remove(uid);
         if (task != null) task.cancel();
         boolean wasActive = aimCannons.remove(uid) != null;
+        clearTrajectory(player);
         if (wasActive && player.isOnline()) {
             player.sendMessage(Lang.msg("msg.aim_off", player, NamedTextColor.YELLOW));
         }
     }
 
-    // ── Cleanup handlers ──────────────────────────────────────────────────────
+    // ── Cleanup ───────────────────────────────────────────────────────────────
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
@@ -133,6 +204,28 @@ public class AimListener implements Listener {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private Location muzzleLocation(Cannon cannon) {
+        try {
+            Location loc = cannon.getCannonDesign().getMuzzle(cannon);
+            if (loc != null) return loc;
+        } catch (Exception ignored) {}
+        // Fallback: center of cannon block + 1 block up
+        try {
+            var offset = cannon.getCannonPosition().getOffset();
+            World world = cannon.getWorldBukkit();
+            return new Location(world, offset.getX() + 0.5, offset.getY() + 1.5, offset.getZ() + 0.5);
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private double cannonSpeed(Cannon cannon) {
+        try {
+            double v = cannon.getCannonballVelocity();
+            if (v > 0) return v;
+        } catch (Exception ignored) {}
+        return DEFAULT_SPEED;
+    }
 
     private List<Cannon> findCannonsOnCraft(PlayerCraft craft) {
         HitBox hitBox = craft.getHitBox();
