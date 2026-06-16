@@ -1,6 +1,5 @@
 package me.missaria.movecraftcannons;
 
-import at.pavlov.cannons.Cannons;
 import at.pavlov.cannons.cannon.Cannon;
 import at.pavlov.cannons.cannon.CannonDesign;
 import at.pavlov.cannons.cannon.CannonManager;
@@ -8,9 +7,18 @@ import at.pavlov.cannons.cannon.DesignStorage;
 import net.countercraft.movecraft.MovecraftLocation;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
@@ -19,9 +27,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
-/**
- * Shared cannon-finding and auto-creation utilities.
- */
 public final class CannonUtils {
 
     private CannonUtils() {}
@@ -30,8 +35,8 @@ public final class CannonUtils {
 
     /**
      * Returns all Cannons whose stored world position falls inside the craft's hitbox.
-     * Uses the full CannonManager list and filters by exact block coordinate match,
-     * which is more accurate than getCannonsInBox (avoids including nearby ships).
+     * Filters the full CannonManager list by exact block coordinate — more accurate
+     * than getCannonsInBox which uses a loose bounding box.
      */
     public static List<Cannon> findCannonsOnCraft(PlayerCraft craft) {
         HitBox hitBox = craft.getHitBox();
@@ -51,25 +56,22 @@ public final class CannonUtils {
                 } catch (Exception ignored) {}
             }
         } catch (Exception e) {
-            Logger.getLogger("MovecraftCannons").warning("CannonUtils: findCannonsOnCraft: " + e.getMessage());
+            Logger.getLogger("MovecraftCannons").warning("CannonUtils.findCannonsOnCraft: " + e.getMessage());
         }
         return result;
     }
 
-    // ── Auto-create cannons from block design ─────────────────────────────────
+    // ── Auto-create cannons via PlayerInteractEvent simulation ────────────────
 
     /**
-     * Scans the craft's hitbox for blocks that match any cannon design's rotation-center
-     * block type. For each unregistered match, creates a Cannon entity in all 4 facing
-     * directions (Cannons will mark the invalid ones as broken on first use).
-     * Call this on CraftDetectEvent so cannons auto-exist without manual right-clicking.
+     * Scans the craft's hitbox for blocks matching any cannon design's rotation-center
+     * material. For each unregistered match, simulates a PlayerInteractEvent so that
+     * Cannons' own PlayerListener detects and creates the cannon — no manual clicking.
      */
-    public static void autoCreateCannons(PlayerCraft craft, Logger log) {
+    public static void autoCreateCannons(PlayerCraft craft, Player pilot, Logger log) {
+        if (pilot == null) return;
         World world = craft.getWorld();
         HitBox hitBox = craft.getHitBox();
-
-        Cannons cannonsPlugin = (Cannons) org.bukkit.Bukkit.getPluginManager().getPlugin("Cannons");
-        if (cannonsPlugin == null) return;
 
         DesignStorage storage;
         try { storage = DesignStorage.getInstance(); }
@@ -79,65 +81,65 @@ public final class CannonUtils {
         try { designs = storage.getCannonDesignList(); }
         catch (Exception e) { return; }
 
-        // Collect world positions of already-registered cannons
+        // Positions already registered so we skip them
         UUID worldUID = world.getUID();
-        List<Location> registeredLocs = new ArrayList<>();
-        try {
-            for (Cannon c : CannonManager.getInstance().getCannonList().values()) {
-                try {
-                    if (!worldUID.equals(c.getCannonPosition().getWorld())) continue;
-                    Vector o = c.getCannonPosition().getOffset();
-                    registeredLocs.add(new Location(world, o.getX(), o.getY(), o.getZ()));
-                } catch (Exception ignored) {}
-            }
-        } catch (Exception ignored) {}
+        List<Location> registered = registeredPositions(worldUID, world);
 
-        for (Object designObj : designs) {
-            if (!(designObj instanceof CannonDesign design)) continue;
+        for (Object obj : designs) {
+            if (!(obj instanceof CannonDesign design)) continue;
 
-            // Get the rotation-center block material
-            org.bukkit.Material centerMat = rotationCenterMaterial(design);
-            if (centerMat == null) continue;
+            // Try rotation center, then right-click trigger as fallback
+            Material mat = blockMaterial(design, true);
+            if (mat == null) mat = blockMaterial(design, false);
+            if (mat == null) continue;
 
-            String designId;
-            try { designId = design.getDesignID(); }
-            catch (Exception e) { continue; }
-
-            // Scan hitbox for blocks matching the rotation center
             for (MovecraftLocation loc : hitBox) {
-                org.bukkit.block.Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
-                if (block.getType() != centerMat) continue;
-
+                Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
+                if (block.getType() != mat) continue;
                 Location bLoc = block.getLocation();
-                // Skip if a cannon is already registered here
-                if (alreadyRegistered(registeredLocs, bLoc)) continue;
+                if (alreadyRegistered(registered, bLoc)) continue;
 
-                // Try to create cannon for each facing direction
-                for (BlockFace face : new BlockFace[]{
-                        BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST}) {
-                    try {
-                        Cannon newCannon = CannonManager.getInstance().newCannon(designId);
-                        if (newCannon == null) break; // design not found
-                        newCannon.getCannonPosition().setOffset(
-                                new Vector(loc.getX(), loc.getY(), loc.getZ()));
-                        newCannon.getCannonPosition().setWorld(worldUID);
-                        newCannon.getCannonPosition().setCannonDirection(face);
-                        CannonManager.getInstance().createCannon(newCannon, false);
-                        registeredLocs.add(bLoc); // mark as registered
-                        break; // created — stop trying faces
-                    } catch (Exception ignored) {}
-                }
+                // Simulate right-click: Cannons' PlayerListener handles creation
+                try {
+                    PlayerInteractEvent fake = new PlayerInteractEvent(
+                            pilot,
+                            Action.RIGHT_CLICK_BLOCK,
+                            new ItemStack(Material.AIR),
+                            block,
+                            BlockFace.UP,
+                            EquipmentSlot.HAND);
+                    fake.setUseItemInHand(Event.Result.DENY);
+                    Bukkit.getPluginManager().callEvent(fake);
+                    registered.add(bLoc); // prevent duplicate events for same block
+                } catch (Exception ignored) {}
             }
         }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static org.bukkit.Material rotationCenterMaterial(CannonDesign design) {
+    private static List<Location> registeredPositions(UUID worldUID, World world) {
+        List<Location> result = new ArrayList<>();
         try {
-            Object obj = design.getSchematicBlockTypeRotationCenter();
-            if (obj instanceof org.bukkit.Material m) return m;
-            if (obj instanceof org.bukkit.block.data.BlockData bd) return bd.getMaterial();
+            for (Cannon c : CannonManager.getInstance().getCannonList().values()) {
+                try {
+                    if (!worldUID.equals(c.getCannonPosition().getWorld())) continue;
+                    Vector o = c.getCannonPosition().getOffset();
+                    result.add(new Location(world, o.getX(), o.getY(), o.getZ()));
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
+        return result;
+    }
+
+    /** Get material from rotation center (useRotation=true) or right-click trigger. */
+    private static Material blockMaterial(CannonDesign design, boolean useRotation) {
+        try {
+            Object raw = useRotation
+                    ? design.getSchematicBlockTypeRotationCenter()
+                    : design.getIngameBlockTypeRightClickTrigger();
+            if (raw instanceof Material m) return m;
+            if (raw instanceof org.bukkit.block.data.BlockData bd) return bd.getMaterial();
         } catch (Exception ignored) {}
         return null;
     }
