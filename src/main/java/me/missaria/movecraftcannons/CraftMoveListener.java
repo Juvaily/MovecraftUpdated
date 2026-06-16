@@ -23,6 +23,7 @@ import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -99,27 +100,37 @@ public class CraftMoveListener implements Listener {
         }
 
         // ── GSit: move ArmorStand seats with the craft ────────────────────────
-        // CraftTranslateEvent fires before blocks move (LOWEST priority).
-        // 1 tick later: players are at new positions, but GSit ArmorStands are not.
-        // We move every ArmorStand that was inside the old hitbox by the same delta.
+        // LOWEST priority fires before Movecraft processes anything, so the player
+        // is still riding the ArmorStand. Capture player→seat pairs here, then
+        // in the next tick (after Movecraft has ejected+teleported the player)
+        // move the seat by the same delta and re-seat the player.
         final int gdx = dx, gdy = dy, gdz = dz;
         final int mnX = oldBox.getMinX(), mxX = oldBox.getMaxX();
         final int mnY = oldBox.getMinY(), mxY = oldBox.getMaxY();
         final int mnZ = oldBox.getMinZ(), mxZ = oldBox.getMaxZ();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            for (Player player : world.getPlayers()) {
-                Entity vehicle = player.getVehicle();
-                if (!(vehicle instanceof ArmorStand)) continue;
-                org.bukkit.Location vl = vehicle.getLocation();
-                int vx = (int) Math.floor(vl.getX());
-                int vy = (int) Math.floor(vl.getY());
-                int vz = (int) Math.floor(vl.getZ());
-                if (vx < mnX || vx > mxX || vy < mnY || vy > mxY || vz < mnZ || vz > mxZ) continue;
-                vehicle.eject();
-                vehicle.teleport(vl.clone().add(gdx, gdy, gdz));
-                vehicle.addPassenger(player);
-            }
-        }, 1L);
+
+        Map<Player, Entity> seats = new HashMap<>();
+        for (Player player : world.getPlayers()) {
+            Entity vehicle = player.getVehicle();
+            if (!(vehicle instanceof ArmorStand)) continue;
+            org.bukkit.Location vl = vehicle.getLocation();
+            int vx = (int) Math.floor(vl.getX());
+            int vy = (int) Math.floor(vl.getY());
+            int vz = (int) Math.floor(vl.getZ());
+            if (vx < mnX || vx > mxX || vy < mnY || vy > mxY || vz < mnZ || vz > mxZ) continue;
+            seats.put(player, vehicle);
+        }
+
+        if (!seats.isEmpty()) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                for (Map.Entry<Player, Entity> e : seats.entrySet()) {
+                    Entity vehicle = e.getValue();
+                    if (!vehicle.isValid()) continue;
+                    vehicle.teleport(vehicle.getLocation().clone().add(gdx, gdy, gdz));
+                    vehicle.addPassenger(e.getKey());
+                }
+            }, 1L);
+        }
     }
 
     // ── Water fill ────────────────────────────────────────────────────────────
