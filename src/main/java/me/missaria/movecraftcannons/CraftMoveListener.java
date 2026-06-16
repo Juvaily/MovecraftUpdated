@@ -6,7 +6,6 @@ import at.pavlov.cannons.cannon.data.CannonPosition;
 import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftSinkEvent;
-import net.countercraft.movecraft.events.CraftTeleportEntityEvent;
 import net.countercraft.movecraft.events.CraftTranslateEvent;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
 import net.countercraft.movecraft.MovecraftLocation;
@@ -15,7 +14,6 @@ import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.ArmorStand;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -98,29 +96,28 @@ public class CraftMoveListener implements Listener {
         if (plugin.isDebug() && updated > 0) {
             plugin.getLogger().info("[debug] Updated " + updated + " cannon(s) on craft translate.");
         }
-    }
 
-    // ── GSit compatibility ────────────────────────────────────────────────────
-    // CraftTeleportEntityEvent fires BEFORE Movecraft teleports the entity.
-    // We capture the player's pre-teleport location, then on the next tick
-    // calculate the exact delta and shift the GSit ArmorStand by the same
-    // amount — preserving the seat's position relative to the block surface.
-
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onCraftTeleportEntity(CraftTeleportEntityEvent event) {
-        if (!(event.getEntity() instanceof Player player)) return;
-        Entity vehicle = player.getVehicle();
-        if (!(vehicle instanceof ArmorStand)) return;
-        org.bukkit.Location pre = player.getLocation().clone();
+        // ── GSit: move ArmorStand seats with the craft ────────────────────────
+        // CraftTranslateEvent fires before blocks move (LOWEST priority).
+        // 1 tick later: players are at new positions, but GSit ArmorStands are not.
+        // We move every ArmorStand that was inside the old hitbox by the same delta.
+        final int gdx = dx, gdy = dy, gdz = dz;
+        final int mnX = oldBox.getMinX(), mxX = oldBox.getMaxX();
+        final int mnY = oldBox.getMinY(), mxY = oldBox.getMaxY();
+        final int mnZ = oldBox.getMinZ(), mxZ = oldBox.getMaxZ();
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (!vehicle.isValid()) return;
-            org.bukkit.Location post = player.getLocation();
-            double dx = post.getX() - pre.getX();
-            double dy = post.getY() - pre.getY();
-            double dz = post.getZ() - pre.getZ();
-            if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01 && Math.abs(dz) < 0.01) return;
-            vehicle.teleport(vehicle.getLocation().clone().add(dx, dy, dz));
-            vehicle.addPassenger(player);
+            for (Player player : world.getPlayers()) {
+                Entity vehicle = player.getVehicle();
+                if (!(vehicle instanceof ArmorStand)) continue;
+                org.bukkit.Location vl = vehicle.getLocation();
+                int vx = (int) Math.floor(vl.getX());
+                int vy = (int) Math.floor(vl.getY());
+                int vz = (int) Math.floor(vl.getZ());
+                if (vx < mnX || vx > mxX || vy < mnY || vy > mxY || vz < mnZ || vz > mxZ) continue;
+                vehicle.eject();
+                vehicle.teleport(vl.clone().add(gdx, gdy, gdz));
+                vehicle.addPassenger(player);
+            }
         }, 1L);
     }
 
