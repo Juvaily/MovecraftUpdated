@@ -11,7 +11,6 @@ import net.countercraft.movecraft.MovecraftRotation;
 
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
-import net.countercraft.movecraft.craft.type.CraftType;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.events.CraftRotateEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -501,16 +500,16 @@ public class ShipMenuListener implements Listener {
         toRemove.forEach(uid -> { reducedDirs.remove(uid); sailGears.remove(uid); });
     }
 
-    @SuppressWarnings("unchecked")
     private int getBaseBps(PlayerCraft craft) {
         try {
-            int skip = (Integer) craft.getType().getIntProperty(CraftType.CRUISE_SKIP_BLOCKS);
-            int cool = craft.getTickCooldown();
-            if (cool > 0) return Math.max(1, Math.round((skip + 1) * 20.0f / cool));
-        } catch (Exception ignored) {}
-        try {
+            // getTickCooldown() = ticks between moves of (skipBlocks+1) blocks
+            // getSpeed() returns blocks per second directly when cruiseSpeed is set
             double spd = craft.getSpeed();
             if (spd > 0 && spd < 50) return (int) Math.round(spd);
+        } catch (Exception ignored) {}
+        try {
+            int cool = craft.getTickCooldown();
+            if (cool > 0) return Math.max(1, 20 / cool);
         } catch (Exception ignored) {}
         return 3;
     }
