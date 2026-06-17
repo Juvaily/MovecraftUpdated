@@ -63,6 +63,7 @@ public class ShipMenuListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
     private final WindManager windManager;
+    private final AimListener aimListener;
 
     // Per-player: slot → action to execute on click
     private final Map<UUID, Consumer<Player>[]> menuActions   = new ConcurrentHashMap<>();
@@ -75,9 +76,10 @@ public class ShipMenuListener implements Listener {
     // Base speed cached while craft is still cruising (before we stop it for reduced gears)
     private final Map<UUID, Integer>            baseBpsCache  = new ConcurrentHashMap<>();
 
-    public ShipMenuListener(MovecraftCannonsPlugin plugin, WindManager windManager) {
+    public ShipMenuListener(MovecraftCannonsPlugin plugin, WindManager windManager, AimListener aimListener) {
         this.plugin = plugin;
         this.windManager = windManager;
+        this.aimListener = aimListener;
         Bukkit.getScheduler().runTaskTimer(plugin, this::tickManualCruise, 20L, 20L);
     }
 
@@ -770,8 +772,12 @@ public class ShipMenuListener implements Listener {
     }
 
     private void doFire(CannonsAPI api, Player player, List<Cannon> cannons) {
+        boolean aiming = aimListener.isAiming(player.getUniqueId());
         for (Cannon cannon : cannons) {
-            api.playerFiring(cannon, player, InteractAction.fireRightClickTigger);
+            // When aiming: apply saved aim angles first, then fire without re-aim
+            if (aiming) aimListener.applyAimAngle(player, cannon);
+            InteractAction action = aiming ? InteractAction.fireOther : InteractAction.fireRightClickTigger;
+            api.playerFiring(cannon, player, action);
         }
     }
 

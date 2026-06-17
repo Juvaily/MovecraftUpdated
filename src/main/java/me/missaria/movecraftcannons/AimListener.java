@@ -6,6 +6,8 @@ import at.pavlov.cannons.Enum.InteractAction;
 import at.pavlov.cannons.aim.GunAngles;
 import at.pavlov.cannons.cannon.Cannon;
 import at.pavlov.cannons.event.CannonUseEvent;
+import net.countercraft.movecraft.MovecraftLocation;
+import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
@@ -53,9 +55,30 @@ public class AimListener implements Listener {
     private final Map<UUID, Map<BlockFace, Cannon>> aimGroups      = new ConcurrentHashMap<>();
     private final Map<UUID, BukkitTask>             aimTasks       = new ConcurrentHashMap<>();
     private final Map<UUID, List<Location>>         sentTrajectory = new ConcurrentHashMap<>();
+    // Last saved yaw/pitch for each aiming player (used by doFire to set angles at fire time)
+    private final Map<UUID, float[]>                lastAimAngles  = new ConcurrentHashMap<>();
 
     public AimListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
+    }
+
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    public boolean isAiming(UUID uid) {
+        return aimGroups.containsKey(uid);
+    }
+
+    /** Sets cannon angle from the player's last tracked yaw/pitch. Returns false if not aiming or API unavailable. */
+    public boolean applyAimAngle(Player player, Cannon cannon) {
+        float[] angles = lastAimAngles.get(player.getUniqueId());
+        if (angles == null) return false;
+        CannonsAPI api = getCannonsAPI();
+        if (api == null) return false;
+        try {
+            GunAngles g = GunAngles.getGunAngle(cannon, angles[0], angles[1]);
+            api.setCannonAngle(cannon, g.getHorizontal(), g.getVertical());
+            return true;
+        } catch (Exception ignored) { return false; }
     }
 
     // ── Block default Cannons aiming ──────────────────────────────────────────
@@ -79,7 +102,7 @@ public class AimListener implements Listener {
         if (item == null || item.getType() != Material.CLOCK) return;
 
         Player player = event.getPlayer();
-        PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
+        PlayerCraft craft = findCraftForPlayer(player);
         if (craft == null) return;
 
         event.setCancelled(true);
@@ -90,7 +113,6 @@ public class AimListener implements Listener {
     // ── Start ─────────────────────────────────────────────────────────────────
 
     private void startAiming(Player player, PlayerCraft craft) {
-        // Use accurate hitbox-based cannon detection
         List<Cannon> all = CannonUtils.findCannonsOnCraft(craft);
         if (all.isEmpty()) {
             player.sendMessage(Lang.msg("msg.no_cannons", player, NamedTextColor.YELLOW));
@@ -113,7 +135,7 @@ public class AimListener implements Listener {
         aimGroups.put(uid, groups);
 
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            PlayerCraft current = CraftManager.getInstance().getCraftByPlayer(player);
+            PlayerCraft current = findCraftForPlayer(player);
             if (!player.isOnline() || current == null) { stopAiming(player); return; }
 
             Map<BlockFace, Cannon> tracked = aimGroups.get(uid);
@@ -122,6 +144,9 @@ public class AimListener implements Listener {
             Location loc  = player.getLocation();
             float yaw     = loc.getYaw();
             float pitch   = loc.getPitch();
+
+            // Save last aim angles so doFire can apply them at fire time
+            lastAimAngles.put(uid, new float[]{ yaw, pitch });
 
             // Aim ALL cannons
             for (Cannon cannon : all) {
@@ -136,7 +161,7 @@ public class AimListener implements Listener {
             List<Location> allPoints = new ArrayList<>();
             for (Map.Entry<BlockFace, Cannon> entry : tracked.entrySet()) {
                 BlockFace face = entry.getKey();
-                if (face != null && !facingCompatible(face, yaw)) continue; // hide exceeded side
+                if (face != null && !facingCompatible(face, yaw)) continue;
                 Material color = SIDE_COLOR.getOrDefault(face, FALLBACK_COLOR);
                 allPoints.addAll(drawTrajectory(player, entry.getValue(),
                         loc.getDirection().normalize(), color));
@@ -149,14 +174,10 @@ public class AimListener implements Listener {
         player.sendMessage(Lang.msg("msg.aim_on", player, NamedTextColor.GREEN, all.size()));
     }
 
-    /**
-     * Returns true if the cannon facing direction is roughly compatible with the
-     * player's horizontal look direction (dot product > 0, i.e. angle < 90°).
-     */
     private boolean facingCompatible(BlockFace face, float yaw) {
         int fx = face.getModX();
         int fz = face.getModZ();
-        if (fx == 0 && fz == 0) return true; // UP/DOWN or unknown — always show
+        if (fx == 0 && fz == 0) return true;
         double yawRad = Math.toRadians(yaw);
         double px = -Math.sin(yawRad);
         double pz =  Math.cos(yawRad);
@@ -213,6 +234,7 @@ public class AimListener implements Listener {
         BukkitTask task = aimTasks.remove(uid);
         if (task != null) task.cancel();
         boolean wasActive = aimGroups.remove(uid) != null;
+        lastAimAngles.remove(uid);
         clearTrajectory(player);
         if (wasActive && player.isOnline())
             player.sendMessage(Lang.msg("msg.aim_off", player, NamedTextColor.YELLOW));
@@ -230,6 +252,20 @@ public class AimListener implements Listener {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Finds the craft the player is piloting or physically standing on. */
+    static PlayerCraft findCraftForPlayer(Player player) {
+        PlayerCraft piloted = CraftManager.getInstance().getCraftByPlayer(player);
+        if (piloted != null) return piloted;
+        Location loc = player.getLocation();
+        MovecraftLocation feet = new MovecraftLocation(loc.getBlockX(), loc.getBlockY() - 1, loc.getBlockZ());
+        MovecraftLocation body = new MovecraftLocation(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+        for (Craft c : CraftManager.getInstance().getCraftsInWorld(player.getWorld())) {
+            if (!(c instanceof PlayerCraft pc)) continue;
+            if (c.getHitBox().contains(feet) || c.getHitBox().contains(body)) return pc;
+        }
+        return null;
+    }
 
     private BlockFace safeDir(Cannon cannon) {
         try { return cannon.getCannonPosition().getCannonDirection(); }

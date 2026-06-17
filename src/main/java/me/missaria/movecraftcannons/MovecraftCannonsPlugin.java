@@ -25,8 +25,9 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         windManager = new WindManager(this);
         getServer().getPluginManager().registerEvents(new WasdListener(this, windManager), this);
         getServer().getPluginManager().registerEvents(new CommandBlockListener(), this);
-        getServer().getPluginManager().registerEvents(new AimListener(this), this);
-        shipMenu = new ShipMenuListener(this, windManager);
+        AimListener aimListener = new AimListener(this);
+        getServer().getPluginManager().registerEvents(aimListener, this);
+        shipMenu = new ShipMenuListener(this, windManager, aimListener);
         getServer().getPluginManager().registerEvents(shipMenu, this);
 
         getLogger().info("MovecraftCannons enabled.");
