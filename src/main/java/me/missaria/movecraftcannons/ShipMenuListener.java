@@ -4,7 +4,6 @@ import at.pavlov.cannons.API.CannonsAPI;
 import at.pavlov.cannons.Cannons;
 import at.pavlov.cannons.Enum.InteractAction;
 import at.pavlov.cannons.cannon.Cannon;
-import at.pavlov.cannons.cannon.CannonManager;
 import net.countercraft.movecraft.CruiseDirection;
 import net.countercraft.movecraft.MovecraftLocation;
 import net.countercraft.movecraft.MovecraftRotation;
@@ -44,7 +43,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -718,22 +716,7 @@ public class ShipMenuListener implements Listener {
     // ── Cannon actions ────────────────────────────────────────────────────────
 
     private List<Cannon> findCannonsOnCraft(PlayerCraft craft) {
-        HitBox hitBox = craft.getHitBox();
-        double cx = (hitBox.getMinX() + hitBox.getMaxX()) / 2.0;
-        double cy = (hitBox.getMinY() + hitBox.getMaxY()) / 2.0;
-        double cz = (hitBox.getMinZ() + hitBox.getMaxZ()) / 2.0;
-        // getCannonsInBox divides dx/dy/dz by 2 internally — pass full width + 2 margin
-        double dx = (hitBox.getMaxX() - hitBox.getMinX()) + 2;
-        double dy = (hitBox.getMaxY() - hitBox.getMinY()) + 2;
-        double dz = (hitBox.getMaxZ() - hitBox.getMinZ()) + 2;
-        Location center = new Location(craft.getWorld(), cx, cy, cz);
-        try {
-            HashSet<Cannon> found = CannonManager.getCannonsInBox(center, dx, dy, dz);
-            return found != null ? new ArrayList<>(found) : List.of();
-        } catch (Exception e) {
-            plugin.getLogger().warning("Error finding cannons on craft: " + e.getMessage());
-            return List.of();
-        }
+        return CannonUtils.findCannonsOnCraft(craft);
     }
 
     private CannonsAPI getCannonsAPI() {
