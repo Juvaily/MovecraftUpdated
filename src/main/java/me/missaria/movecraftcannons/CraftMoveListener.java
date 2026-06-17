@@ -84,14 +84,6 @@ public class CraftMoveListener implements Listener {
     public void onCraftDetect(CraftDetectEvent event) {
         Craft craft = event.getCraft();
 
-        // Auto-create any cannon designs found in the hitbox (no player click required)
-        if (craft instanceof net.countercraft.movecraft.craft.PlayerCraft pc
-                && craft instanceof net.countercraft.movecraft.craft.PilotedCraft piloted) {
-            Player pilot = piloted.getPilot();
-            Bukkit.getScheduler().runTaskLater(plugin, () ->
-                CannonUtils.autoCreateCannons(pc, pilot, plugin), 5L);
-        }
-
         List<MovecraftLocation> list = waterPositions(craft);
         if (list.isEmpty()) return;
 
