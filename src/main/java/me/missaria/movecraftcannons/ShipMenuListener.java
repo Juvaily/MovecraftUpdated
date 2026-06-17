@@ -782,8 +782,12 @@ public class ShipMenuListener implements Listener {
             return;
         }
         for (Cannon cannon : cannons) {
-            cannon.reloadFromChests(player.getUniqueId(), true);
-            if (!cannon.isReadyToFire()) cannon.reloadFromChests(player.getUniqueId(), true);
+            try {
+                cannon.reloadFromChests(player.getUniqueId(), true);
+                if (!cannon.isReadyToFire()) cannon.reloadFromChests(player.getUniqueId(), true);
+            } catch (Exception e) {
+                plugin.getLogger().warning("Error reloading cannon: " + e.getMessage());
+            }
         }
         long afterReady = cannons.stream().filter(Cannon::isReadyToFire).count();
         player.sendMessage(Lang.msg("msg.reloaded", player,
