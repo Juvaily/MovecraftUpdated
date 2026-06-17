@@ -21,6 +21,7 @@ import org.bukkit.util.Vector;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Logger;
@@ -79,7 +80,20 @@ public final class CannonUtils {
             }
         } catch (Exception ignored) {}
 
-        return result;
+        // Deduplicate by block position: keeps one cannon per block coordinate.
+        // Handles duplicate cannon objects saved in Cannons' database.
+        Map<String, Cannon> byPos = new java.util.LinkedHashMap<>();
+        for (Cannon c : result) {
+            try {
+                Vector off = c.getCannonPosition().getOffset();
+                String key = (int) Math.floor(off.getX()) + ","
+                        + (int) Math.floor(off.getY()) + ","
+                        + (int) Math.floor(off.getZ());
+                // Prefer a cannon that is ready to fire over an unloaded duplicate
+                if (!byPos.containsKey(key) || c.isReadyToFire()) byPos.put(key, c);
+            } catch (Exception ignored) { byPos.put(c.getUID().toString(), c); }
+        }
+        return new ArrayList<>(byPos.values());
     }
 
     // ── Auto-create cannons by simulating block placement ────────────────────

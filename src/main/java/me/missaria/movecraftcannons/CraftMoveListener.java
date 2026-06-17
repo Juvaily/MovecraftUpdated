@@ -61,9 +61,9 @@ public class CraftMoveListener implements Listener {
                 if (!worldUID.equals(pos.getWorld())) continue;
                 Vector offset = pos.getOffset();
                 MovecraftLocation mloc = new MovecraftLocation(
-                        (int) Math.round(offset.getX()),
-                        (int) Math.round(offset.getY()),
-                        (int) Math.round(offset.getZ()));
+                        (int) Math.floor(offset.getX()),
+                        (int) Math.floor(offset.getY()),
+                        (int) Math.floor(offset.getZ()));
                 if (!oldBox.contains(mloc)) continue;
                 pos.setOffset(offset.clone().add(translation));
                 cannon.setUpdated(true);
