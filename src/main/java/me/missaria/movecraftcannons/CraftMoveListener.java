@@ -89,7 +89,7 @@ public class CraftMoveListener implements Listener {
                 && craft instanceof net.countercraft.movecraft.craft.PilotedCraft piloted) {
             Player pilot = piloted.getPilot();
             Bukkit.getScheduler().runTaskLater(plugin, () ->
-                CannonUtils.autoCreateCannons(pc, pilot, plugin.getLogger()), 5L);
+                CannonUtils.autoCreateCannons(pc, pilot, plugin), 5L);
         }
 
         List<MovecraftLocation> list = waterPositions(craft);
