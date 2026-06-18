@@ -26,6 +26,8 @@ import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,6 +36,7 @@ public class WasdListener implements Listener {
 
     private final MovecraftCannonsPlugin plugin;
     private final WindManager windManager;
+    private final HealthBarListener healthBarListener;
 
     private final Map<UUID, int[]>    latestDir       = new ConcurrentHashMap<>();
     private final Map<UUID, Long>     latestTime      = new ConcurrentHashMap<>();
@@ -54,12 +57,14 @@ public class WasdListener implements Listener {
     private static final float  PILOT_SPEED     = 0.005f;
     private static final double MOVE_THRESHOLD  = 0.001;
 
-    public WasdListener(MovecraftCannonsPlugin plugin, WindManager windManager) {
+    public WasdListener(MovecraftCannonsPlugin plugin, WindManager windManager, HealthBarListener healthBarListener) {
         this.plugin = plugin;
         this.windManager = windManager;
+        this.healthBarListener = healthBarListener;
         long cooldown = plugin.getConfig().getLong("wasd.cooldown_ms", 200L);
         Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 0L, Math.max(1L, cooldown / 50L));
         Bukkit.getScheduler().runTaskTimer(plugin, this::syncFlightState, 0L, 10L);
+        Bukkit.getScheduler().runTaskTimer(plugin, this::updateHuds, 0L, 10L);
     }
 
     // ── Flight + DC state management ──────────────────────────────────────────
@@ -93,24 +98,14 @@ public class WasdListener implements Listener {
                         false,  // no particles for others
                         false)); // no icon
 
-                // Scoreboard sidebar
-                String shipName = craftName(craft);
-                Scoreboard sb = buildDcScoreboard(player, shipName);
+                // Initial scoreboard (health lines appear after first updateHuds tick)
+                Scoreboard sb = buildDcScoreboard(player, craftName(craft), List.of());
                 dcScoreboards.put(uid, sb);
                 dcWindGen.put(uid, windManager.getGeneration());
                 player.setScoreboard(sb);
 
             } else if (!locked && tracked) {
                 restoreFlight(player);
-            } else if (locked) {
-                // ── Still in DC — rebuild scoreboard if wind period changed ──
-                Integer sbPeriod = dcWindGen.get(uid);
-                if (sbPeriod == null || sbPeriod != windManager.getGeneration()) {
-                    Scoreboard sb = buildDcScoreboard(player, craftName(craft));
-                    dcScoreboards.put(uid, sb);
-                    dcWindGen.put(uid, windManager.getGeneration());
-                    player.setScoreboard(sb);
-                }
             }
         }
     }
@@ -293,8 +288,22 @@ public class WasdListener implements Listener {
         return "Транспорт";
     }
 
+    private void updateHuds() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            UUID uid = player.getUniqueId();
+            if (!savedAllowFlight.containsKey(uid)) continue;
+            PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
+            if (craft == null || !craft.getPilotLocked()) continue;
+            List<String> healthLines = healthBarListener.getHealthLines(player, craft);
+            Scoreboard sb = buildDcScoreboard(player, craftName(craft), healthLines);
+            dcScoreboards.put(uid, sb);
+            dcWindGen.put(uid, windManager.getGeneration());
+            player.setScoreboard(sb);
+        }
+    }
+
     @SuppressWarnings("deprecation")
-    private Scoreboard buildDcScoreboard(Player player, String shipName) {
+    private Scoreboard buildDcScoreboard(Player player, String shipName, List<String> healthLines) {
         Scoreboard sb = Bukkit.getScoreboardManager().getNewScoreboard();
         Objective obj = sb.registerNewObjective("dc", "dummy",
                 Component.text(Lang.get("dc.title", player))
@@ -302,19 +311,20 @@ public class WasdListener implements Listener {
                         .decoration(TextDecoration.BOLD, true));
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
-        String[] lines = {
-            "§e" + shipName,
-            Lang.get("dc.sep1", player),
-            Lang.get("dc.wasd", player),
-            Lang.get("dc.rotate", player),
-            Lang.get("dc.menu", player),
-            Lang.get("dc.aim", player),
-            Lang.get("dc.sep2", player),
-            Lang.get("dc.wind", player, windManager.getStrengthDisplay(player)),
-            Lang.get("dc.leave", player),
-        };
-        for (int i = 0; i < lines.length; i++) {
-            obj.getScore(lines[i]).setScore(lines.length - i);
+        List<String> lines = new ArrayList<>();
+        lines.add("§e" + shipName);
+        lines.addAll(healthLines);
+        lines.add(Lang.get("dc.sep2", player));
+        lines.add(Lang.get("dc.wind", player, windManager.getStrengthDisplay(player)));
+        lines.add(Lang.get("dc.sep1", player));
+        lines.add(Lang.get("dc.wasd", player));
+        lines.add(Lang.get("dc.rotate", player));
+        lines.add(Lang.get("dc.menu", player));
+        lines.add(Lang.get("dc.aim", player));
+        lines.add(Lang.get("dc.leave", player));
+
+        for (int i = 0; i < lines.size(); i++) {
+            obj.getScore(lines.get(i)).setScore(lines.size() - i);
         }
         return sb;
     }

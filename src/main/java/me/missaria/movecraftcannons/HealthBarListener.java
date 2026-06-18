@@ -50,6 +50,7 @@ public class HealthBarListener implements Listener {
     private final Map<UUID, List<RequiredBlockEntry>> flyEntries     = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    origFlyCount   = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    flyMinCount    = new ConcurrentHashMap<>();
+    private final Map<UUID, int[]>                    scanCache      = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -194,6 +195,7 @@ public class HealthBarListener implements Listener {
         List<RequiredBlockEntry> entries  = moveEntries.getOrDefault(uid, List.of());
         List<RequiredBlockEntry> fEntries = flyEntries.getOrDefault(uid, List.of());
         int[] sc    = scan(craft, entries, fEntries);
+        scanCache.put(uid, sc);
         int   orig  = origBlockCount.getOrDefault(uid, sc[0]);
         int[] origE = origEntryCount.getOrDefault(uid, new int[0]);
         int[] minE  = moveMinCount.getOrDefault(uid, new int[0]);
@@ -211,6 +213,7 @@ public class HealthBarListener implements Listener {
         flyEntries.remove(uid);
         origFlyCount.remove(uid);
         flyMinCount.remove(uid);
+        scanCache.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
@@ -316,71 +319,89 @@ public class HealthBarListener implements Listener {
                               : NamedTextColor.RED;
 
         var text = Component.text()
-                .append(Component.text(craftTitle(craft))
-                        .color(NamedTextColor.GOLD))
+                .append(Component.text(craftTitle(craft)).color(NamedTextColor.GOLD))
                 .appendNewline()
                 .append(Component.text("█".repeat(filled)).color(hColor))
                 .append(Component.text("░".repeat(10 - filled)).color(NamedTextColor.DARK_GRAY))
                 .append(Component.text(String.format(" %.0f%%", pct)).color(hColor))
                 .append(Component.text(" (" + curr + "/" + orig + ")").color(NamedTextColor.GRAY));
 
-        // Move-block lines (⚙)
-        for (int i = 0; i < entries.size(); i++) {
-            if (origE.length <= i || origE[i] <= 0) continue;
-            RequiredBlockEntry entry = entries.get(i);
-            int currE    = sc[2 + i];
-            int maxEntry = origE[i];
-            int minEntry = (minE.length > i) ? minE[i] : 0;
-
-            boolean met    = entry.check(currE, curr);
-            NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
-            double ePct    = entryPct(currE, minEntry, maxEntry);
-            int    eFilled = (int) Math.round(ePct / 20.0); // 5 segments
-
-            text.appendNewline()
-                .append(Component.text("⚙ " + entryLabel(pilot, entry) + " ").color(NamedTextColor.GRAY))
-                .append(Component.text("█".repeat(eFilled))
-                        .color(mc).decoration(TextDecoration.BOLD, true))
-                .append(Component.text("░".repeat(5 - eFilled))
-                        .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.BOLD, true))
-                .append(Component.text(String.format(" %.0f%%", ePct)).color(mc))
-                .append(Component.text(" (" + currE + "/" + maxEntry + ")").color(NamedTextColor.GRAY));
-        }
-
-        // Fly-block lines (🧱) — skip entries where max allowed = 0
-        int base = 2 + entries.size();
-        for (int i = 0; i < fEntries.size(); i++) {
-            if (origF.length <= i || origF[i] <= 0) continue;
-            RequiredBlockEntry entry = fEntries.get(i);
-            int currE    = sc[base + i];
-            int maxEntry = origF[i];
-            int minEntry = (minF.length > i) ? minF[i] : 0;
-
-            boolean met    = entry.check(currE, curr);
-            NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
-            double ePct    = entryPct(currE, minEntry, maxEntry);
-            int    eFilled = (int) Math.round(ePct / 20.0); // 5 segments
-
-            text.appendNewline()
-                .append(Component.text("🧱 " + entryLabel(pilot, entry) + " ").color(NamedTextColor.GRAY))
-                .append(Component.text("█".repeat(eFilled))
-                        .color(mc).decoration(TextDecoration.BOLD, true))
-                .append(Component.text("░".repeat(5 - eFilled))
-                        .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.BOLD, true))
-                .append(Component.text(String.format(" %.0f%%", ePct)).color(mc))
-                .append(Component.text(" (" + currE + "/" + maxEntry + ")").color(NamedTextColor.GRAY));
-        }
-
-        // Fire indicator
         if (sc[1] == 1) {
             String fireMsg = pilot != null ? Lang.get("health.fire", pilot) : Lang.get("health.fire");
             text.appendNewline()
-                .append(Component.text(fireMsg)
-                        .color(NamedTextColor.RED)
-                        .decoration(TextDecoration.BOLD, true));
+                .append(Component.text(fireMsg).color(NamedTextColor.RED).decoration(TextDecoration.BOLD, true));
         }
 
         return text.build();
+    }
+
+    /** Health bar lines for the pilot's sidebar HUD (legacy §-color strings). */
+    public List<String> getHealthLines(Player pilot, Craft craft) {
+        UUID uid = craft.getUUID();
+        int[] sc = scanCache.get(uid);
+        if (sc == null || sc.length == 0) return List.of();
+
+        List<RequiredBlockEntry> entries  = moveEntries.getOrDefault(uid, List.of());
+        List<RequiredBlockEntry> fEntries = flyEntries.getOrDefault(uid, List.of());
+        int   orig  = origBlockCount.getOrDefault(uid, sc[0]);
+        int[] origE = origEntryCount.getOrDefault(uid, new int[0]);
+        int[] minE  = moveMinCount.getOrDefault(uid, new int[0]);
+        int[] origF = origFlyCount.getOrDefault(uid, new int[0]);
+        int[] minF  = flyMinCount.getOrDefault(uid, new int[0]);
+        int curr = sc[0];
+
+        double sinkLost = 0.0;
+        try { sinkLost = craft.getType().getDoubleProperty(CraftType.OVERALL_SINK_PERCENT) / 100.0; }
+        catch (Exception ignored) {}
+        double ratio = frac(curr, orig);
+        double sinkRatio = 1.0 - sinkLost;
+        double pct = sinkLost <= 0
+                ? ratio * 100.0
+                : Math.max(0.0, (ratio - sinkRatio) / (1.0 - sinkRatio)) * 100.0;
+        int filled = (int) Math.round(pct / 10.0);
+        String hCol = pct > 60 ? "§a" : pct > 30 ? "§e" : "§c";
+
+        List<String> lines = new ArrayList<>();
+        lines.add(hCol + "█".repeat(filled) + "§8" + "░".repeat(10 - filled)
+                + " " + hCol + String.format("%.0f%%", pct)
+                + " §8(" + curr + "/" + orig + ")");
+
+        for (int i = 0; i < entries.size(); i++) {
+            if (origE.length <= i || origE[i] <= 0) continue;
+            int currE = sc.length > 2 + i ? sc[2 + i] : 0;
+            if (currE <= 0) continue;
+            int maxEntry = origE[i];
+            int minEntry = minE.length > i ? minE[i] : 0;
+            boolean met = entries.get(i).check(currE, curr);
+            String mc = met ? "§a" : "§c";
+            double ePct = entryPct(currE, minEntry, maxEntry);
+            int eFilled = (int) Math.round(ePct / 20.0);
+            lines.add("§7⚙ " + entryLabel(pilot, entries.get(i)) + " "
+                    + mc + "§l" + "█".repeat(eFilled)
+                    + "§8§l" + "░".repeat(5 - eFilled)
+                    + " " + mc + String.format("%.0f%%", ePct));
+        }
+
+        int base = 2 + entries.size();
+        for (int i = 0; i < fEntries.size(); i++) {
+            if (origF.length <= i || origF[i] <= 0) continue;
+            int currE = sc.length > base + i ? sc[base + i] : 0;
+            if (currE <= 0) continue;
+            int maxEntry = origF[i];
+            int minEntry = minF.length > i ? minF[i] : 0;
+            boolean met = fEntries.get(i).check(currE, curr);
+            String mc = met ? "§a" : "§c";
+            double ePct = entryPct(currE, minEntry, maxEntry);
+            int eFilled = (int) Math.round(ePct / 20.0);
+            lines.add("§7🧱 " + entryLabel(pilot, fEntries.get(i)) + " "
+                    + mc + "§l" + "█".repeat(eFilled)
+                    + "§8§l" + "░".repeat(5 - eFilled)
+                    + " " + mc + String.format("%.0f%%", ePct));
+        }
+
+        if (sc[1] == 1) lines.add("§c§l" + Lang.get("health.fire", pilot));
+
+        return lines;
     }
 
     /** Label for a moveblock/flyblock entry: lang file → RU_NAMES → fallback. */

@@ -21,9 +21,10 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         Lang.load(this);
 
         getServer().getPluginManager().registerEvents(new CraftMoveListener(this), this);
-        getServer().getPluginManager().registerEvents(new HealthBarListener(this), this);
+        HealthBarListener healthBar = new HealthBarListener(this);
+        getServer().getPluginManager().registerEvents(healthBar, this);
         windManager = new WindManager(this);
-        getServer().getPluginManager().registerEvents(new WasdListener(this, windManager), this);
+        getServer().getPluginManager().registerEvents(new WasdListener(this, windManager, healthBar), this);
         getServer().getPluginManager().registerEvents(new CommandBlockListener(), this);
         AimListener aimListener = new AimListener(this);
         getServer().getPluginManager().registerEvents(aimListener, this);
