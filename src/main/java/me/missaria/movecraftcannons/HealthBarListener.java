@@ -298,21 +298,24 @@ public class HealthBarListener implements Listener {
         // Move-block lines (⚙)
         for (int i = 0; i < entries.size(); i++) {
             RequiredBlockEntry entry = entries.get(i);
-            int currE    = sc[2 + i];
+            int currE     = sc[2 + i];
             int origEntry = (origE.length > i) ? origE[i] : currE;
             if (origEntry <= 0) origEntry = currE;
 
             boolean met = entry.check(currE, curr);
             NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
-            double ePct = origEntry > 0 ? Math.max(0.0, (double) currE / origEntry * 100.0) : 100.0;
+            double ePct    = origEntry > 0 ? Math.max(0.0, (double) currE / origEntry * 100.0) : 100.0;
+            int    eFilled = (int) Math.round(ePct / 10.0);
 
             text.appendNewline()
-                .append(Component.text("⚙ " + entryLabel(pilot, entry) + ": ").color(NamedTextColor.GRAY))
-                .append(Component.text(String.format("%.0f%%", ePct)).color(mc))
+                .append(Component.text("⚙ " + entryLabel(pilot, entry) + " ").color(NamedTextColor.GRAY))
+                .append(Component.text("█".repeat(eFilled)).color(mc))
+                .append(Component.text("░".repeat(10 - eFilled)).color(NamedTextColor.DARK_GRAY))
+                .append(Component.text(String.format(" %.0f%%", ePct)).color(mc))
                 .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
         }
 
-        // Fly-block lines (🪂) — skip entries with no blocks at detect time
+        // Fly-block lines (🧱) — skip entries with no blocks at detect time
         int base = 2 + entries.size();
         for (int i = 0; i < fEntries.size(); i++) {
             int origEntry = (origF.length > i) ? origF[i] : 0;
@@ -323,11 +326,14 @@ public class HealthBarListener implements Listener {
 
             boolean met = entry.check(currE, curr);
             NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
-            double ePct = Math.max(0.0, (double) currE / origEntry * 100.0);
+            double ePct    = Math.max(0.0, (double) currE / origEntry * 100.0);
+            int    eFilled = (int) Math.round(ePct / 10.0);
 
             text.appendNewline()
-                .append(Component.text("🧱 " + entryLabel(pilot, entry) + ": ").color(NamedTextColor.GRAY))
-                .append(Component.text(String.format("%.0f%%", ePct)).color(mc))
+                .append(Component.text("🧱 " + entryLabel(pilot, entry) + " ").color(NamedTextColor.GRAY))
+                .append(Component.text("█".repeat(eFilled)).color(mc))
+                .append(Component.text("░".repeat(10 - eFilled)).color(NamedTextColor.DARK_GRAY))
+                .append(Component.text(String.format(" %.0f%%", ePct)).color(mc))
                 .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
         }
 

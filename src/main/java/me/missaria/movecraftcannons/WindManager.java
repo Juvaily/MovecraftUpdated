@@ -11,6 +11,7 @@ import org.bukkit.entity.Player;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -52,6 +53,7 @@ public class WindManager {
     private int generation = 0;
     private final Map<String, Boolean> woolInFlyCache  = new ConcurrentHashMap<>();
     private final Map<String, Boolean> woolInMoveCache = new ConcurrentHashMap<>();
+    private final Set<UUID> mutedPlayers = ConcurrentHashMap.newKeySet();
 
     public WindManager(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
@@ -67,7 +69,9 @@ public class WindManager {
         if (getStrength() > 0) direction = Direction.random();
         generation++;
         String msg = Lang.get("wind.change", getStrengthDisplay());
-        Bukkit.getOnlinePlayers().forEach(p -> p.sendMessage(msg));
+        Bukkit.getOnlinePlayers().stream()
+                .filter(p -> !mutedPlayers.contains(p.getUniqueId()))
+                .forEach(p -> p.sendMessage(msg));
     }
 
     // ── Per-second cruise effect ──────────────────────────────────────────────
@@ -163,7 +167,17 @@ public class WindManager {
         if (getStrength() > 0) direction = Direction.random();
         generation++;
         String msg = Lang.get("wind.change", getStrengthDisplay());
-        Bukkit.getOnlinePlayers().forEach(p -> p.sendMessage(msg));
+        Bukkit.getOnlinePlayers().stream()
+                .filter(p -> !mutedPlayers.contains(p.getUniqueId()))
+                .forEach(p -> p.sendMessage(msg));
+    }
+
+    /** Toggle wind-change message mute for a player. Returns true if now muted. */
+    public boolean toggleMute(Player player) {
+        UUID uuid = player.getUniqueId();
+        if (mutedPlayers.remove(uuid)) return false;
+        mutedPlayers.add(uuid);
+        return true;
     }
 
     /** Colored string for server broadcasts — direction shown as word (server language). */

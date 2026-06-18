@@ -16,6 +16,10 @@ commands:
     description: Случайно изменить ветер (только для администраторов)
     usage: /windroll
     permission: movecraftcannons.admin.wind
+  windmute:
+    description: Включить/выключить уведомления о смене ветра
+    usage: /windmute
+    aliases: [wm]
 
 permissions:
   movecraftcannons.admin.wind:

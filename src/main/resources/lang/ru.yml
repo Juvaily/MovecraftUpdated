@@ -101,6 +101,8 @@ wind.dir.south:   "Юг"
 wind.dir.east:    "Восток"
 wind.dir.west:    "Запад"
 wind.change:      "§b⛵ §7Ветер§8: {0}"
+wind.mute.on:     "§7Уведомления о смене ветра §cотключены§7."
+wind.mute.off:    "§7Уведомления о смене ветра §aвключены§7."
 
 # ── Wind compass in ship menu ──────────────────────────────────────────────────
 menu.wind.north:    "Север"

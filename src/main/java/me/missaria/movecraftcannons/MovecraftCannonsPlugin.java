@@ -52,6 +52,15 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
             sender.sendMessage("§aВетер изменён.");
             return true;
         }
+        if (command.getName().equalsIgnoreCase("windmute")) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(Lang.get("msg.only_players"));
+                return true;
+            }
+            boolean muted = windManager.toggleMute(player);
+            player.sendMessage(Lang.get(muted ? "wind.mute.on" : "wind.mute.off", player));
+            return true;
+        }
         return false;
     }
 
