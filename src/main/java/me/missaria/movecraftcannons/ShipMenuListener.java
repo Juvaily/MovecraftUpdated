@@ -64,6 +64,7 @@ public class ShipMenuListener implements Listener {
     private final MovecraftCannonsPlugin plugin;
     private final WindManager windManager;
     private final AimListener aimListener;
+    private final HealthBarListener healthBarListener;
 
     // Per-player: slot → action to execute on click
     private final Map<UUID, Consumer<Player>[]> menuActions   = new ConcurrentHashMap<>();
@@ -76,10 +77,12 @@ public class ShipMenuListener implements Listener {
     // Base speed cached while craft is still cruising (before we stop it for reduced gears)
     private final Map<UUID, Integer>            baseBpsCache  = new ConcurrentHashMap<>();
 
-    public ShipMenuListener(MovecraftCannonsPlugin plugin, WindManager windManager, AimListener aimListener) {
+    public ShipMenuListener(MovecraftCannonsPlugin plugin, WindManager windManager,
+                            AimListener aimListener, HealthBarListener healthBarListener) {
         this.plugin = plugin;
         this.windManager = windManager;
         this.aimListener = aimListener;
+        this.healthBarListener = healthBarListener;
         Bukkit.getScheduler().runTaskTimer(plugin, this::tickManualCruise, 20L, 20L);
     }
 
@@ -416,13 +419,39 @@ public class ShipMenuListener implements Listener {
     @SuppressWarnings("unchecked")
     private void buildSailButtons(Inventory inv, Consumer<Player>[] actions, Player player,
                                   PlayerCraft craft, SailGear current) {
+        double woolPct = healthBarListener.getSailWoolRawPct(craft);
+        // 0-30%: only NONE; 30-70%: NONE+HALF; 70-100%: all
+        boolean canHalf = woolPct >= 30.0;
+        boolean canFull = woolPct >= 70.0;
+
         int[] slots = {40, 41, 42};
         SailGear[] gears = {SailGear.FULL, SailGear.HALF, SailGear.NONE};
+        boolean[] allowed = {canFull, canHalf, true};
         for (int i = 0; i < 3; i++) {
             SailGear g = gears[i];
-            setSlot(inv, actions, slots[i], sailGearItem(g, current, player),
-                    p -> setSailGear(p, craft, g));
+            if (allowed[i]) {
+                setSlot(inv, actions, slots[i], sailGearItem(g, current, player),
+                        p -> setSailGear(p, craft, g));
+            } else {
+                setSlot(inv, actions, slots[i], lockedSailItem(g, player), null);
+            }
         }
+    }
+
+    private ItemStack lockedSailItem(SailGear gear, Player player) {
+        String nameKey = switch (gear) {
+            case FULL -> "menu.sail.full";
+            case HALF -> "menu.sail.half";
+            case NONE -> "menu.sail.none";
+        };
+        ItemStack is = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text("🔒 " + Lang.get(nameKey, player))
+                .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(Component.text(Lang.get("menu.sail.locked_lore", player))
+                .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
+        is.setItemMeta(m);
+        return is;
     }
 
     private ItemStack sailGearItem(SailGear gear, SailGear current, Player player) {
@@ -455,6 +484,16 @@ public class ShipMenuListener implements Listener {
     }
 
     private void setSailGear(Player player, PlayerCraft craft, SailGear gear) {
+        double woolPct = healthBarListener.getSailWoolRawPct(craft);
+        boolean allowed = switch (gear) {
+            case FULL -> woolPct >= 70.0;
+            case HALF -> woolPct >= 30.0;
+            case NONE -> true;
+        };
+        if (!allowed) {
+            player.sendMessage(Lang.msg("msg.sail_locked", player, NamedTextColor.RED));
+            return;
+        }
         UUID uid = player.getUniqueId();
         SailGear prev = sailGears.getOrDefault(uid, SailGear.FULL);
         sailGears.put(uid, gear);

@@ -115,12 +115,14 @@ menu.wind.cross:    "+{0} б/с боковой"
 menu.wind.calm_eff: "-2 б/с всегда"
 
 # ── Sail gear ──────────────────────────────────────────────────────────────────
-menu.sail.full:      "Полные паруса"
-menu.sail.full_lore: "Нормальная скорость"
-menu.sail.half:      "Пол паруса"
-menu.sail.half_lore: "Скорость ÷ 2"
-menu.sail.none:      "Убрать паруса"
-menu.sail.none_lore: "Скорость ÷ 3"
+menu.sail.full:        "Полные паруса"
+menu.sail.full_lore:   "Нормальная скорость"
+menu.sail.half:        "Пол паруса"
+menu.sail.half_lore:   "Скорость ÷ 2"
+menu.sail.none:        "Убрать паруса"
+menu.sail.none_lore:   "Скорость ÷ 3"
+menu.sail.locked_lore: "Недостаточно парусов"
+msg.sail_locked:       "§cНедостаточно парусов для этого режима."
 
 # ── Health bar ────────────────────────────────────────────────────────────────
 health.sinking:   "☠ Тонет!"

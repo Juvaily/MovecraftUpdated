@@ -335,6 +335,30 @@ public class HealthBarListener implements Listener {
         return text.build();
     }
 
+    /**
+     * Current wool moveblock % relative to max (0–100).
+     * Returns 100 if no wool entry found (no restriction).
+     */
+    public double getSailWoolRawPct(Craft craft) {
+        UUID uid = craft.getUUID();
+        int[] sc = scanCache.get(uid);
+        if (sc == null) return 100.0;
+        List<RequiredBlockEntry> entries = moveEntries.getOrDefault(uid, List.of());
+        int[] origE = origEntryCount.getOrDefault(uid, new int[0]);
+        for (int i = 0; i < entries.size(); i++) {
+            if (origE.length <= i || origE[i] <= 0) continue;
+            boolean hasWool = false;
+            try {
+                for (Material m : entries.get(i).getMaterials())
+                    if (m.name().endsWith("_WOOL")) { hasWool = true; break; }
+            } catch (Exception ignored) {}
+            if (!hasWool) continue;
+            int currE = sc.length > 2 + i ? sc[2 + i] : 0;
+            return Math.max(0.0, Math.min(100.0, (double) currE / origE[i] * 100.0));
+        }
+        return 100.0;
+    }
+
     /** Health bar lines for the pilot's sidebar HUD (legacy §-color strings). */
     public List<String> getHealthLines(Player pilot, Craft craft) {
         UUID uid = craft.getUUID();

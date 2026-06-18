@@ -115,12 +115,14 @@ menu.wind.cross:    "+{0} б/с боковий"
 menu.wind.calm_eff: "-2 б/с завжди"
 
 # ── Sail gear ──────────────────────────────────────────────────────────────────
-menu.sail.full:      "Повні вітрила"
-menu.sail.full_lore: "Нормальна швидкість"
-menu.sail.half:      "Пів вітрила"
-menu.sail.half_lore: "Швидкість ÷ 2"
-menu.sail.none:      "Прибрати вітрила"
-menu.sail.none_lore: "Швидкість ÷ 3"
+menu.sail.full:        "Повні вітрила"
+menu.sail.full_lore:   "Нормальна швидкість"
+menu.sail.half:        "Пів вітрила"
+menu.sail.half_lore:   "Швидкість ÷ 2"
+menu.sail.none:        "Прибрати вітрила"
+menu.sail.none_lore:   "Швидкість ÷ 3"
+menu.sail.locked_lore: "Недостатньо вітрил"
+msg.sail_locked:       "§cНедостатньо вітрил для цього режиму."
 
 # ── Health bar ────────────────────────────────────────────────────────────────
 health.sinking:   "☠ Тоне!"
