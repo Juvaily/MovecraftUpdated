@@ -77,7 +77,7 @@ public class HealthBarListener implements Listener {
 
         int[] sc = scan(craft, entries, fEntries);
         origBlockCount.put(uid, sc[0]);
-        int totalBlocks = sc[0];
+        int craftSize = sc[0];
         if (!entries.isEmpty()) {
             int[] maxCounts = new int[entries.size()];
             int[] minCounts = new int[entries.size()];
@@ -85,10 +85,10 @@ public class HealthBarListener implements Listener {
                 RequiredBlockEntry e = entries.get(i);
                 maxCounts[i] = e.isNumericMax()
                         ? (int) e.getMax()
-                        : (int) Math.round(totalBlocks * e.getMax() / 100.0);
+                        : (int) Math.round(craftSize * e.getMax() / 100.0);
                 minCounts[i] = e.isNumericMin()
                         ? (int) e.getMin()
-                        : (int) Math.round(totalBlocks * e.getMin() / 100.0);
+                        : (int) Math.round(craftSize * e.getMin() / 100.0);
             }
             origEntryCount.put(uid, maxCounts);
             moveMinCount.put(uid, minCounts);
@@ -100,10 +100,10 @@ public class HealthBarListener implements Listener {
                 RequiredBlockEntry e = fEntries.get(i);
                 maxCounts[i] = e.isNumericMax()
                         ? (int) e.getMax()
-                        : (int) Math.round(totalBlocks * e.getMax() / 100.0);
+                        : (int) Math.round(craftSize * e.getMax() / 100.0);
                 minCounts[i] = e.isNumericMin()
                         ? (int) e.getMin()
-                        : (int) Math.round(totalBlocks * e.getMin() / 100.0);
+                        : (int) Math.round(craftSize * e.getMin() / 100.0);
             }
             origFlyCount.put(uid, maxCounts);
             flyMinCount.put(uid, minCounts);
