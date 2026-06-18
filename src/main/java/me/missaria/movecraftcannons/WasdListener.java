@@ -48,7 +48,8 @@ public class WasdListener implements Listener {
     private final Map<UUID, Float>    savedWalkSpeed   = new ConcurrentHashMap<>();
     private final Map<UUID, Float>    savedFlySpeed    = new ConcurrentHashMap<>();
 
-    private final java.util.Set<UUID> hudPlayers = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<UUID> hudPlayers  = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<UUID> hudHidden   = ConcurrentHashMap.newKeySet();
 
     private static final long   ROTATE_DEBOUNCE = 600L;
     private static final float  PILOT_SPEED     = 0.005f;
@@ -282,11 +283,19 @@ public class WasdListener implements Listener {
         return "Транспорт";
     }
 
+    /** Toggle HUD visibility for a player. Returns true if now hidden. */
+    public boolean toggleHud(Player player) {
+        UUID uid = player.getUniqueId();
+        if (hudHidden.remove(uid)) return false;
+        hudHidden.add(uid);
+        return true;
+    }
+
     private void updateHuds() {
         for (Player player : Bukkit.getOnlinePlayers()) {
             UUID uid = player.getUniqueId();
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
-            if (craft != null) {
+            if (craft != null && !hudHidden.contains(uid)) {
                 List<String> healthLines = healthBarListener.getHealthLines(player, craft);
                 player.setScoreboard(buildPilotScoreboard(player, craftName(craft), healthLines));
                 hudPlayers.add(uid);
@@ -307,6 +316,7 @@ public class WasdListener implements Listener {
         List<String> lines = new ArrayList<>(healthLines);
         lines.add(Lang.get("dc.sep2", player));
         lines.add(Lang.get("dc.wind", player, windManager.getStrengthDisplay(player)));
+        lines.add(Lang.get("hud.hide_hint", player));
 
         for (int i = 0; i < lines.size(); i++) {
             obj.getScore(lines.get(i)).setScore(lines.size() - i);

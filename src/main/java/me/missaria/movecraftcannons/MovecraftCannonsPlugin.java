@@ -11,6 +11,7 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
     private boolean debug;
     private ShipMenuListener shipMenu;
     private WindManager windManager;
+    private WasdListener wasdListener;
 
     @Override
     public void onEnable() {
@@ -24,7 +25,8 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         HealthBarListener healthBar = new HealthBarListener(this);
         getServer().getPluginManager().registerEvents(healthBar, this);
         windManager = new WindManager(this);
-        getServer().getPluginManager().registerEvents(new WasdListener(this, windManager, healthBar), this);
+        wasdListener = new WasdListener(this, windManager, healthBar);
+        getServer().getPluginManager().registerEvents(wasdListener, this);
         getServer().getPluginManager().registerEvents(new CommandBlockListener(), this);
         AimListener aimListener = new AimListener(this);
         getServer().getPluginManager().registerEvents(aimListener, this);
@@ -60,6 +62,15 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
             }
             boolean muted = windManager.toggleMute(player);
             player.sendMessage(Lang.get(muted ? "wind.mute.on" : "wind.mute.off", player));
+            return true;
+        }
+        if (command.getName().equalsIgnoreCase("hudhide")) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(Lang.get("msg.only_players"));
+                return true;
+            }
+            boolean hidden = wasdListener.toggleHud(player);
+            player.sendMessage(Lang.get(hidden ? "hud.hidden" : "hud.shown", player));
             return true;
         }
         return false;

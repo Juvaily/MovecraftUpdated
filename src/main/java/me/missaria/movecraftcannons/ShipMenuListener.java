@@ -726,7 +726,8 @@ public class ShipMenuListener implements Listener {
         PlayerInteractEvent fake = new PlayerInteractEvent(
                 player, Action.RIGHT_CLICK_BLOCK,
                 player.getInventory().getItemInMainHand(),
-                signBlock, face);
+                signBlock, face,
+                org.bukkit.inventory.EquipmentSlot.HAND);
         Bukkit.getPluginManager().callEvent(fake);
     }
 
@@ -989,9 +990,8 @@ public class ShipMenuListener implements Listener {
                 if (!re.isCancelled()) CraftManager.getInstance().release(craft, re.getReason(), false);
 
                 if (pilotSignLoc != null) {
-                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                        simulateClick(player, pilotSignLoc.getBlock());
-                    }, 2L);
+                    Bukkit.getScheduler().runTaskLater(plugin, () ->
+                        simulateClick(player, pilotSignLoc.getBlock()), 1L);
                 } else {
                     player.sendMessage(Lang.msg("msg.refit", player, NamedTextColor.YELLOW));
                 }

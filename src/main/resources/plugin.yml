@@ -20,6 +20,9 @@ commands:
     description: Включить/выключить уведомления о смене ветра
     usage: /windmute
     aliases: [wm]
+  hudhide:
+    description: Скрыть/показать HUD здоровья корабля
+    usage: /hudhide
 
 permissions:
   movecraftcannons.admin.wind:

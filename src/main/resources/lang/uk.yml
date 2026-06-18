@@ -103,6 +103,9 @@ wind.dir.west:    "Захід"
 wind.change:      "§b⛵ §7Вітер§8: {0}"
 wind.mute.on:     "§7Сповіщення про зміну вітру §cвимкнено§7."
 wind.mute.off:    "§7Сповіщення про зміну вітру §aувімкнено§7."
+hud.hide_hint:    "§8/hudhide — приховати HUD"
+hud.hidden:       "§7HUD §cприховано§7. /hudhide — повернути."
+hud.shown:        "§7HUD §aувімкнено§7."
 
 # ── Wind compass in ship menu ──────────────────────────────────────────────────
 menu.wind.north:    "Північ"
