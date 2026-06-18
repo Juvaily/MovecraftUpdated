@@ -1,7 +1,5 @@
 package me.missaria.movecraftcannons;
 
-import at.pavlov.cannons.API.CannonsAPI;
-import at.pavlov.cannons.Cannons;
 import at.pavlov.cannons.Enum.InteractAction;
 import at.pavlov.cannons.aim.GunAngles;
 import at.pavlov.cannons.cannon.Cannon;
@@ -68,15 +66,14 @@ public class AimListener implements Listener {
         return aimGroups.containsKey(uid);
     }
 
-    /** Sets cannon angle from the player's last tracked yaw/pitch. Returns false if not aiming or API unavailable. */
+    /** Sets cannon angle from the player's last tracked yaw/pitch. Returns false if not aiming. */
     public boolean applyAimAngle(Player player, Cannon cannon) {
         float[] angles = lastAimAngles.get(player.getUniqueId());
         if (angles == null) return false;
-        CannonsAPI api = getCannonsAPI();
-        if (api == null) return false;
         try {
             GunAngles g = GunAngles.getGunAngle(cannon, angles[0], angles[1]);
-            api.setCannonAngle(cannon, g.getHorizontal(), g.getVertical());
+            cannon.setHorizontalAngle(cannon.getHorizontalAngle() + g.getHorizontal());
+            cannon.setVerticalAngle(cannon.getVerticalAngle() + g.getVertical());
             return true;
         } catch (Exception ignored) { return false; }
     }
@@ -118,11 +115,6 @@ public class AimListener implements Listener {
             player.sendMessage(Lang.msg("msg.no_cannons", player, NamedTextColor.YELLOW));
             return;
         }
-        CannonsAPI api = getCannonsAPI();
-        if (api == null) {
-            player.sendMessage(Lang.msg("msg.cannons_unavailable", player, NamedTextColor.RED));
-            return;
-        }
 
         // One representative cannon per facing direction for trajectory
         Map<BlockFace, Cannon> groups = new LinkedHashMap<>();
@@ -148,11 +140,12 @@ public class AimListener implements Listener {
             // Save last aim angles so doFire can apply them at fire time
             lastAimAngles.put(uid, new float[]{ yaw, pitch });
 
-            // Aim ALL cannons
+            // Aim ALL cannons — setCannonAngle in CannonsAPI is a no-op stub, use direct field access
             for (Cannon cannon : all) {
                 try {
-                    GunAngles angles = GunAngles.getGunAngle(cannon, yaw, pitch);
-                    api.setCannonAngle(cannon, angles.getHorizontal(), angles.getVertical());
+                    GunAngles delta = GunAngles.getGunAngle(cannon, yaw, pitch);
+                    cannon.setHorizontalAngle(cannon.getHorizontalAngle() + delta.getHorizontal());
+                    cannon.setVerticalAngle(cannon.getVerticalAngle() + delta.getVertical());
                 } catch (Exception ignored) {}
             }
 
@@ -163,8 +156,12 @@ public class AimListener implements Listener {
                 BlockFace face = entry.getKey();
                 if (face != null && !facingCompatible(face, yaw)) continue;
                 Material color = SIDE_COLOR.getOrDefault(face, FALLBACK_COLOR);
-                allPoints.addAll(drawTrajectory(player, entry.getValue(),
-                        loc.getDirection().normalize(), color));
+                Cannon c = entry.getValue();
+                try {
+                    org.bukkit.util.Vector aimVec = c.getAimingVector();
+                    if (aimVec != null && aimVec.length() > 0.01)
+                        allPoints.addAll(drawTrajectory(player, c, aimVec.normalize(), color));
+                } catch (Exception ignored) {}
             }
             sentTrajectory.put(uid, allPoints);
 
@@ -291,8 +288,4 @@ public class AimListener implements Listener {
         return DEFAULT_SPEED;
     }
 
-    private CannonsAPI getCannonsAPI() {
-        Cannons c = (Cannons) Bukkit.getPluginManager().getPlugin("Cannons");
-        return c != null ? c.getCannonsAPI() : null;
-    }
 }
