@@ -46,8 +46,10 @@ public class HealthBarListener implements Listener {
     private final Map<UUID, Integer>                  origBlockCount = new ConcurrentHashMap<>();
     private final Map<UUID, List<RequiredBlockEntry>> moveEntries    = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    origEntryCount = new ConcurrentHashMap<>();
+    private final Map<UUID, int[]>                    moveMinCount   = new ConcurrentHashMap<>();
     private final Map<UUID, List<RequiredBlockEntry>> flyEntries     = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    origFlyCount   = new ConcurrentHashMap<>();
+    private final Map<UUID, int[]>                    flyMinCount    = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -75,21 +77,44 @@ public class HealthBarListener implements Listener {
 
         int[] sc = scan(craft, entries, fEntries);
         origBlockCount.put(uid, sc[0]);
+        int totalBlocks = sc[0];
         if (!entries.isEmpty()) {
-            int[] orig = new int[entries.size()];
-            System.arraycopy(sc, 2, orig, 0, entries.size());
-            origEntryCount.put(uid, orig);
+            int[] maxCounts = new int[entries.size()];
+            int[] minCounts = new int[entries.size()];
+            for (int i = 0; i < entries.size(); i++) {
+                RequiredBlockEntry e = entries.get(i);
+                maxCounts[i] = e.isNumericMax()
+                        ? (int) e.getMax()
+                        : (int) Math.round(totalBlocks * e.getMax() / 100.0);
+                minCounts[i] = e.isNumericMin()
+                        ? (int) e.getMin()
+                        : (int) Math.round(totalBlocks * e.getMin() / 100.0);
+            }
+            origEntryCount.put(uid, maxCounts);
+            moveMinCount.put(uid, minCounts);
         }
         if (!fEntries.isEmpty()) {
-            int[] orig = new int[fEntries.size()];
-            System.arraycopy(sc, 2 + entries.size(), orig, 0, fEntries.size());
-            origFlyCount.put(uid, orig);
+            int[] maxCounts = new int[fEntries.size()];
+            int[] minCounts = new int[fEntries.size()];
+            for (int i = 0; i < fEntries.size(); i++) {
+                RequiredBlockEntry e = fEntries.get(i);
+                maxCounts[i] = e.isNumericMax()
+                        ? (int) e.getMax()
+                        : (int) Math.round(totalBlocks * e.getMax() / 100.0);
+                minCounts[i] = e.isNumericMin()
+                        ? (int) e.getMin()
+                        : (int) Math.round(totalBlocks * e.getMin() / 100.0);
+            }
+            origFlyCount.put(uid, maxCounts);
+            flyMinCount.put(uid, minCounts);
         }
 
-        Location pos   = above(craft.getHitBox(), craft.getWorld());
-        int      origB = sc[0];
-        int[]    origE = origEntryCount.getOrDefault(uid, new int[0]);
-        int[]    origF = origFlyCount.getOrDefault(uid, new int[0]);
+        Location pos    = above(craft.getHitBox(), craft.getWorld());
+        int      origB  = sc[0];
+        int[]    origE  = origEntryCount.getOrDefault(uid, new int[0]);
+        int[]    minE   = moveMinCount.getOrDefault(uid, new int[0]);
+        int[]    origF  = origFlyCount.getOrDefault(uid, new int[0]);
+        int[]    minF   = flyMinCount.getOrDefault(uid, new int[0]);
 
         TextDisplay disp = pos.getWorld().spawn(pos, TextDisplay.class, e -> {
             e.setBillboard(Display.Billboard.CENTER);
@@ -99,7 +124,7 @@ public class HealthBarListener implements Listener {
             e.setViewRange(1.5f);
             e.setTransformation(SCALE);
             Player pilot0 = craft instanceof net.countercraft.movecraft.craft.PlayerCraft pc0 ? pc0.getPilot() : null;
-            e.text(buildText(pilot0, craft, sc, origB, entries, origE, fEntries, origF));
+            e.text(buildText(pilot0, craft, sc, origB, entries, origE, minE, fEntries, origF, minF));
         });
 
         displays.put(uid, disp);
@@ -171,8 +196,10 @@ public class HealthBarListener implements Listener {
         int[] sc    = scan(craft, entries, fEntries);
         int   orig  = origBlockCount.getOrDefault(uid, sc[0]);
         int[] origE = origEntryCount.getOrDefault(uid, new int[0]);
+        int[] minE  = moveMinCount.getOrDefault(uid, new int[0]);
         int[] origF = origFlyCount.getOrDefault(uid, new int[0]);
-        disp.text(buildText(pilot, craft, sc, orig, entries, origE, fEntries, origF));
+        int[] minF  = flyMinCount.getOrDefault(uid, new int[0]);
+        disp.text(buildText(pilot, craft, sc, orig, entries, origE, minE, fEntries, origF, minF));
     }
 
     private void remove(UUID uid) {
@@ -180,8 +207,10 @@ public class HealthBarListener implements Listener {
         origBlockCount.remove(uid);
         moveEntries.remove(uid);
         origEntryCount.remove(uid);
+        moveMinCount.remove(uid);
         flyEntries.remove(uid);
         origFlyCount.remove(uid);
+        flyMinCount.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
@@ -268,8 +297,8 @@ public class HealthBarListener implements Listener {
     // ── Text ─────────────────────────────────────────────────────────────────
 
     private Component buildText(Player pilot, Craft craft, int[] sc, int orig,
-                                List<RequiredBlockEntry> entries, int[] origE,
-                                List<RequiredBlockEntry> fEntries, int[] origF) {
+                                List<RequiredBlockEntry> entries, int[] origE, int[] minE,
+                                List<RequiredBlockEntry> fEntries, int[] origF, int[] minF) {
         int curr = sc[0];
 
         double sinkLost = 0.0;
@@ -297,44 +326,49 @@ public class HealthBarListener implements Listener {
 
         // Move-block lines (⚙)
         for (int i = 0; i < entries.size(); i++) {
+            if (origE.length <= i || origE[i] <= 0) continue;
             RequiredBlockEntry entry = entries.get(i);
-            int currE     = sc[2 + i];
-            int origEntry = (origE.length > i) ? origE[i] : currE;
-            if (origEntry <= 0) origEntry = currE;
+            int currE    = sc[2 + i];
+            int maxEntry = origE[i];
+            int minEntry = (minE.length > i) ? minE[i] : 0;
 
-            boolean met = entry.check(currE, curr);
+            boolean met    = entry.check(currE, curr);
             NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
-            double ePct    = origEntry > 0 ? Math.max(0.0, (double) currE / origEntry * 100.0) : 100.0;
-            int    eFilled = (int) Math.round(ePct / 10.0);
+            double ePct    = entryPct(currE, minEntry, maxEntry);
+            int    eFilled = (int) Math.round(ePct / 20.0); // 5 segments
 
             text.appendNewline()
                 .append(Component.text("⚙ " + entryLabel(pilot, entry) + " ").color(NamedTextColor.GRAY))
-                .append(Component.text("█".repeat(eFilled)).color(mc))
-                .append(Component.text("░".repeat(10 - eFilled)).color(NamedTextColor.DARK_GRAY))
+                .append(Component.text("█".repeat(eFilled))
+                        .color(mc).decoration(TextDecoration.BOLD, true))
+                .append(Component.text("░".repeat(5 - eFilled))
+                        .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.BOLD, true))
                 .append(Component.text(String.format(" %.0f%%", ePct)).color(mc))
-                .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
+                .append(Component.text(" (" + currE + "/" + maxEntry + ")").color(NamedTextColor.GRAY));
         }
 
-        // Fly-block lines (🧱) — skip entries with no blocks at detect time
+        // Fly-block lines (🧱) — skip entries where max allowed = 0
         int base = 2 + entries.size();
         for (int i = 0; i < fEntries.size(); i++) {
-            int origEntry = (origF.length > i) ? origF[i] : 0;
-            if (origEntry <= 0) continue; // craft doesn't use this fly block
-
+            if (origF.length <= i || origF[i] <= 0) continue;
             RequiredBlockEntry entry = fEntries.get(i);
-            int currE = sc[base + i];
+            int currE    = sc[base + i];
+            int maxEntry = origF[i];
+            int minEntry = (minF.length > i) ? minF[i] : 0;
 
-            boolean met = entry.check(currE, curr);
+            boolean met    = entry.check(currE, curr);
             NamedTextColor mc = met ? NamedTextColor.GREEN : NamedTextColor.RED;
-            double ePct    = Math.max(0.0, (double) currE / origEntry * 100.0);
-            int    eFilled = (int) Math.round(ePct / 10.0);
+            double ePct    = entryPct(currE, minEntry, maxEntry);
+            int    eFilled = (int) Math.round(ePct / 20.0); // 5 segments
 
             text.appendNewline()
                 .append(Component.text("🧱 " + entryLabel(pilot, entry) + " ").color(NamedTextColor.GRAY))
-                .append(Component.text("█".repeat(eFilled)).color(mc))
-                .append(Component.text("░".repeat(10 - eFilled)).color(NamedTextColor.DARK_GRAY))
+                .append(Component.text("█".repeat(eFilled))
+                        .color(mc).decoration(TextDecoration.BOLD, true))
+                .append(Component.text("░".repeat(5 - eFilled))
+                        .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.BOLD, true))
                 .append(Component.text(String.format(" %.0f%%", ePct)).color(mc))
-                .append(Component.text(" (" + currE + "/" + origEntry + ")").color(NamedTextColor.GRAY));
+                .append(Component.text(" (" + currE + "/" + maxEntry + ")").color(NamedTextColor.GRAY));
         }
 
         // Fire indicator
@@ -402,6 +436,12 @@ public class HealthBarListener implements Listener {
 
     private double frac(int curr, int orig) {
         return orig <= 0 ? 1.0 : Math.max(0.0, Math.min(1.0, (double) curr / orig));
+    }
+
+    /** 0% at min blocks, 100% at max blocks, clamped. */
+    private double entryPct(int curr, int min, int max) {
+        if (max <= min) return curr >= max ? 100.0 : 0.0;
+        return Math.max(0.0, Math.min(100.0, (double)(curr - min) / (max - min) * 100.0));
     }
 
     // ── Russian material names ────────────────────────────────────────────────
