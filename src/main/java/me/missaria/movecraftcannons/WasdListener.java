@@ -48,10 +48,7 @@ public class WasdListener implements Listener {
     private final Map<UUID, Float>    savedWalkSpeed   = new ConcurrentHashMap<>();
     private final Map<UUID, Float>    savedFlySpeed    = new ConcurrentHashMap<>();
 
-    // DC extras: scoreboard
-    private final Map<UUID, Scoreboard> dcScoreboards  = new ConcurrentHashMap<>();
-    // Wind generation at scoreboard build time — used to detect changes and rebuild
-    private final Map<UUID, Integer>    dcWindGen   = new ConcurrentHashMap<>();
+    private final java.util.Set<UUID> hudPlayers = ConcurrentHashMap.newKeySet();
 
     private static final long   ROTATE_DEBOUNCE = 600L;
     private static final float  PILOT_SPEED     = 0.005f;
@@ -98,12 +95,6 @@ public class WasdListener implements Listener {
                         false,  // no particles for others
                         false)); // no icon
 
-                // Initial scoreboard (health lines appear after first updateHuds tick)
-                Scoreboard sb = buildDcScoreboard(player, craftName(craft), List.of());
-                dcScoreboards.put(uid, sb);
-                dcWindGen.put(uid, windManager.getGeneration());
-                player.setScoreboard(sb);
-
             } else if (!locked && tracked) {
                 restoreFlight(player);
             }
@@ -131,26 +122,29 @@ public class WasdListener implements Listener {
 
         latestDir.remove(uid);
         latestTime.remove(uid);
-        dcWindGen.remove(uid);
 
         // Restore DC extras
         player.setInvulnerable(false);
         player.removePotionEffect(PotionEffectType.INVISIBILITY);
-        dcScoreboards.remove(uid);
-        try { player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard()); }
-        catch (Exception ignored) {}
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onCraftRelease(CraftReleaseEvent event) {
         if (!(event.getCraft() instanceof net.countercraft.movecraft.craft.PilotedCraft pc)) return;
         Player pilot = pc.getPilot();
-        if (pilot != null) restoreFlight(pilot);
+        if (pilot == null) return;
+        restoreFlight(pilot);
+        if (hudPlayers.remove(pilot.getUniqueId())) {
+            try { pilot.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard()); }
+            catch (Exception ignored) {}
+        }
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
-        restoreFlight(event.getPlayer());
+        Player player = event.getPlayer();
+        restoreFlight(player);
+        hudPlayers.remove(player.getUniqueId());
     }
 
 
@@ -291,37 +285,28 @@ public class WasdListener implements Listener {
     private void updateHuds() {
         for (Player player : Bukkit.getOnlinePlayers()) {
             UUID uid = player.getUniqueId();
-            if (!savedAllowFlight.containsKey(uid)) continue;
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
-            if (craft == null || !craft.getPilotLocked()) continue;
-            List<String> healthLines = healthBarListener.getHealthLines(player, craft);
-            Scoreboard sb = buildDcScoreboard(player, craftName(craft), healthLines);
-            dcScoreboards.put(uid, sb);
-            dcWindGen.put(uid, windManager.getGeneration());
-            player.setScoreboard(sb);
+            if (craft != null) {
+                List<String> healthLines = healthBarListener.getHealthLines(player, craft);
+                player.setScoreboard(buildPilotScoreboard(player, craftName(craft), healthLines));
+                hudPlayers.add(uid);
+            } else if (hudPlayers.remove(uid)) {
+                try { player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard()); }
+                catch (Exception ignored) {}
+            }
         }
     }
 
     @SuppressWarnings("deprecation")
-    private Scoreboard buildDcScoreboard(Player player, String shipName, List<String> healthLines) {
+    private Scoreboard buildPilotScoreboard(Player player, String shipName, List<String> healthLines) {
         Scoreboard sb = Bukkit.getScoreboardManager().getNewScoreboard();
-        Objective obj = sb.registerNewObjective("dc", "dummy",
-                Component.text(Lang.get("dc.title", player))
-                        .color(NamedTextColor.DARK_AQUA)
-                        .decoration(TextDecoration.BOLD, true));
+        Objective obj = sb.registerNewObjective("hud", "dummy",
+                Component.text(shipName).color(NamedTextColor.GOLD).decoration(TextDecoration.BOLD, true));
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
-        List<String> lines = new ArrayList<>();
-        lines.add("§e" + shipName);
-        lines.addAll(healthLines);
+        List<String> lines = new ArrayList<>(healthLines);
         lines.add(Lang.get("dc.sep2", player));
         lines.add(Lang.get("dc.wind", player, windManager.getStrengthDisplay(player)));
-        lines.add(Lang.get("dc.sep1", player));
-        lines.add(Lang.get("dc.wasd", player));
-        lines.add(Lang.get("dc.rotate", player));
-        lines.add(Lang.get("dc.menu", player));
-        lines.add(Lang.get("dc.aim", player));
-        lines.add(Lang.get("dc.leave", player));
 
         for (int i = 0; i < lines.size(); i++) {
             obj.getScore(lines.get(i)).setScore(lines.size() - i);
