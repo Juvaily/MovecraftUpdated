@@ -150,8 +150,8 @@ public class WindManager {
 
     /** True if wind affects this craft (wool in flyblocks OR moveblocks). */
     public boolean isWindAffected(PlayerCraft craft) { return hasWoolInFly(craft) || hasWoolInMove(craft); }
-    /** True for sea sailing ships — wool in moveblocks but NOT flyblocks. */
-    public boolean isSailShip(PlayerCraft craft)     { return hasWoolInMove(craft) && !hasWoolInFly(craft); }
+    /** True for ships with wool in moveblocks (sail gear system applies). */
+    public boolean isSailShip(PlayerCraft craft)     { return hasWoolInMove(craft); }
     /** Current wind effect in blocks/sec for the given cruise direction. */
     public int getEffect(CruiseDirection dir)        { return computeEffect(getStrength(), dir); }
 

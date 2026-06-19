@@ -336,8 +336,9 @@ public class HealthBarListener implements Listener {
     }
 
     /**
-     * Current wool moveblock % relative to max (0–100).
-     * Returns 100 if no wool entry found (no restriction).
+     * Combined moveblock % relative to max (0–100) for sail-gear thresholds.
+     * If the craft has any wool entry in moveblocks, sums ALL moveblock entries.
+     * Returns 100 if no wool entry found (not a sail ship).
      */
     public double getSailWoolRawPct(Craft craft) {
         UUID uid = craft.getUUID();
@@ -345,18 +346,26 @@ public class HealthBarListener implements Listener {
         if (sc == null) return 100.0;
         List<RequiredBlockEntry> entries = moveEntries.getOrDefault(uid, List.of());
         int[] origE = origEntryCount.getOrDefault(uid, new int[0]);
+
+        boolean hasWool = false;
         for (int i = 0; i < entries.size(); i++) {
             if (origE.length <= i || origE[i] <= 0) continue;
-            boolean hasWool = false;
             try {
                 for (Material m : entries.get(i).getMaterials())
                     if (m.name().endsWith("_WOOL")) { hasWool = true; break; }
             } catch (Exception ignored) {}
-            if (!hasWool) continue;
-            int currE = sc.length > 2 + i ? sc[2 + i] : 0;
-            return Math.max(0.0, Math.min(100.0, (double) currE / origE[i] * 100.0));
+            if (hasWool) break;
         }
-        return 100.0;
+        if (!hasWool) return 100.0;
+
+        int totalOrig = 0, totalCurr = 0;
+        for (int i = 0; i < entries.size(); i++) {
+            if (origE.length <= i || origE[i] <= 0) continue;
+            totalOrig += origE[i];
+            totalCurr += sc.length > 2 + i ? sc[2 + i] : 0;
+        }
+        if (totalOrig <= 0) return 100.0;
+        return Math.max(0.0, Math.min(100.0, (double) totalCurr / totalOrig * 100.0));
     }
 
     /** Health bar lines for the pilot's sidebar HUD (legacy §-color strings). */
