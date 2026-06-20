@@ -434,40 +434,91 @@ public class HealthBarListener implements Listener {
         return lines;
     }
 
-    private static final Map<String, String> FAMILY_RU = Map.of(
-        "planks",      "Доски",
-        "logs",        "Брёвна",
-        "slabs",       "Плиты",
-        "fences",      "Заборы",
-        "fence_gates", "Ворота",
-        "stairs",      "Ступени",
-        "wool",        "Шерсть",
-        "beds",        "Кровати"
-    );
-
-    private static final Map<String, String> FAMILY_ICON = Map.of(
-        "planks",      "🪵",
-        "logs",        "🌲",
-        "slabs",       "🪨",
-        "fences",      "🚧",
-        "fence_gates", "🚪",
-        "stairs",      "📐",
-        "wool",        "🐑",
-        "beds",        "🛏"
-    );
+    private static final Map<String, String> FAMILY_ICON;
+    static {
+        FAMILY_ICON = new java.util.HashMap<>();
+        FAMILY_ICON.put("planks",        "🪵");
+        FAMILY_ICON.put("logs",          "🌲");
+        FAMILY_ICON.put("slabs",         "📏");
+        FAMILY_ICON.put("fences",        "🚧");
+        FAMILY_ICON.put("fence_gates",   "🚪");
+        FAMILY_ICON.put("stairs",        "📐");
+        FAMILY_ICON.put("wool",          "🐑");
+        FAMILY_ICON.put("beds",          "🛏");
+        FAMILY_ICON.put("carpets",       "🎨");
+        FAMILY_ICON.put("buttons",       "🔘");
+        FAMILY_ICON.put("trapdoors",     "🪜");
+        FAMILY_ICON.put("doors",         "🚪");
+        FAMILY_ICON.put("banners",       "🏳");
+        FAMILY_ICON.put("shulker_boxes", "📦");
+        FAMILY_ICON.put("concrete",      "🏗");
+        FAMILY_ICON.put("terracotta",    "🏺");
+        FAMILY_ICON.put("glass",         "🪟");
+        FAMILY_ICON.put("leaves",        "🍃");
+        FAMILY_ICON.put("ores",          "⛏");
+        FAMILY_ICON.put("redstone",      "⚡");
+        FAMILY_ICON.put("iron",          "⚙");
+        FAMILY_ICON.put("gold",          "🌕");
+        FAMILY_ICON.put("diamond",       "💎");
+        FAMILY_ICON.put("emerald",       "💚");
+        FAMILY_ICON.put("netherite",     "🖤");
+        FAMILY_ICON.put("lapis",         "🔵");
+        FAMILY_ICON.put("coal",          "🪨");
+        FAMILY_ICON.put("chests",        "📦");
+        FAMILY_ICON.put("tnt",           "💥");
+        FAMILY_ICON.put("obsidian",      "⚫");
+        FAMILY_ICON.put("ice",           "🧊");
+        FAMILY_ICON.put("sand",          "⏳");
+        FAMILY_ICON.put("stone",         "🪨");
+        FAMILY_ICON.put("hay",           "🌾");
+        FAMILY_ICON.put("sponge",        "🧽");
+    }
 
     private static String materialFamily(Material m) {
         String n = m.name();
-        if (n.endsWith("_FENCE_GATE")) return "fence_gates";
-        if (n.endsWith("_FENCE"))      return "fences";
-        if (n.endsWith("_PLANKS"))     return "planks";
-        if (n.endsWith("_LOG"))        return "logs";
-        if (n.endsWith("_WOOD"))       return "logs";
-        if (n.endsWith("_SLAB"))       return "slabs";
-        if (n.endsWith("_STAIRS"))     return "stairs";
-        if (n.endsWith("_WOOL"))       return "wool";
-        if (n.endsWith("_BED"))        return "beds";
+        if (n.endsWith("_FENCE_GATE"))   return "fence_gates";
+        if (n.endsWith("_FENCE"))        return "fences";
+        if (n.endsWith("_PLANKS"))       return "planks";
+        if (n.endsWith("_LOG"))          return "logs";
+        if (n.endsWith("_WOOD"))         return "logs";
+        if (n.endsWith("_SLAB"))         return "slabs";
+        if (n.endsWith("_STAIRS"))       return "stairs";
+        if (n.endsWith("_WOOL"))         return "wool";
+        if (n.endsWith("_BED"))          return "beds";
+        if (n.endsWith("_CARPET"))       return "carpets";
+        if (n.endsWith("_BUTTON"))       return "buttons";
+        if (n.endsWith("_TRAPDOOR"))     return "trapdoors";
+        if (n.endsWith("_DOOR"))         return "doors";
+        if (n.endsWith("_BANNER"))       return "banners";
+        if (n.endsWith("_SHULKER_BOX"))  return "shulker_boxes";
+        if (n.endsWith("_CONCRETE"))     return "concrete";
+        if (n.endsWith("_TERRACOTTA"))   return "terracotta";
+        if (n.contains("GLASS"))         return "glass";
+        if (n.endsWith("_LEAVES"))       return "leaves";
+        if (n.endsWith("_ORE"))          return "ores";
+        if (n.equals("REDSTONE_BLOCK"))  return "redstone";
+        if (n.equals("IRON_BLOCK"))      return "iron";
+        if (n.equals("GOLD_BLOCK"))      return "gold";
+        if (n.equals("DIAMOND_BLOCK"))   return "diamond";
+        if (n.equals("EMERALD_BLOCK"))   return "emerald";
+        if (n.equals("NETHERITE_BLOCK")) return "netherite";
+        if (n.equals("LAPIS_BLOCK"))     return "lapis";
+        if (n.equals("COAL_BLOCK"))      return "coal";
+        if (n.equals("CHEST") || n.equals("TRAPPED_CHEST") || n.equals("BARREL")) return "chests";
+        if (n.equals("TNT"))             return "tnt";
+        if (n.contains("OBSIDIAN"))      return "obsidian";
+        if (n.contains("ICE"))           return "ice";
+        if (n.equals("SAND") || n.equals("RED_SAND") || n.equals("GRAVEL")) return "sand";
+        if (n.contains("STONE") || n.contains("COBBLESTONE")) return "stone";
+        if (n.equals("HAY_BLOCK"))       return "hay";
+        if (n.equals("SPONGE") || n.equals("WET_SPONGE")) return "sponge";
         return n.toLowerCase();
+    }
+
+    private static String familyName(String family, Player pilot) {
+        String key = "health.family." + family;
+        String val = pilot != null ? Lang.get(key, pilot) : Lang.get(key);
+        return val.equals(key) ? family : val;
     }
 
     private void addEntryLines(List<String> lines, String icon, Player pilot,
@@ -485,7 +536,7 @@ public class HealthBarListener implements Listener {
         String dominant = familyCounts.entrySet().stream()
                 .max(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey).orElse(null);
-        String dominantName  = dominant != null ? FAMILY_RU.getOrDefault(dominant, dominant) : entryLabel(pilot, entry);
+        String dominantName  = dominant != null ? familyName(dominant, pilot) : entryLabel(pilot, entry);
         String dominantIcon  = dominant != null ? FAMILY_ICON.getOrDefault(dominant, "") : "";
         String othersIcons   = familyCounts.keySet().stream()
                 .filter(k -> !k.equals(dominant))
