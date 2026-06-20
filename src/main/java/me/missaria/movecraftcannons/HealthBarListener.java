@@ -361,12 +361,6 @@ public class HealthBarListener implements Listener {
         int totalOrig = 0, totalCurr = 0;
         for (int i = 0; i < entries.size(); i++) {
             if (origE.length <= i || origE[i] <= 0) continue;
-            boolean isWool = false;
-            try {
-                for (Material m : entries.get(i).getMaterials())
-                    if (m.name().endsWith("_WOOL")) { isWool = true; break; }
-            } catch (Exception ignored) {}
-            if (!isWool) continue;
             totalOrig += origE[i];
             totalCurr += sc.length > 2 + i ? sc[2 + i] : 0;
         }
