@@ -3,7 +3,7 @@ package me.missaria.movecraftcannons;
 import at.pavlov.cannons.cannon.Cannon;
 import at.pavlov.cannons.cannon.CannonManager;
 import net.countercraft.movecraft.MovecraftLocation;
-import net.countercraft.movecraft.craft.PlayerCraft;
+import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.util.hitboxes.HitBox;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -28,7 +28,7 @@ public final class CannonUtils {
      *    (handles fractional offsets that getCannonsByLocations may miss)
      * Results are deduplicated by block position.
      */
-    public static List<Cannon> findCannonsOnCraft(PlayerCraft craft) {
+    public static List<Cannon> findCannonsOnCraft(Craft craft) {
         World world = craft.getWorld();
         HitBox hitBox = craft.getHitBox();
         UUID worldUID = world.getUID();

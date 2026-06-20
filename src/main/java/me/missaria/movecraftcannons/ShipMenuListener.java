@@ -760,7 +760,7 @@ public class ShipMenuListener implements Listener {
 
     // ── Cannon actions ────────────────────────────────────────────────────────
 
-    private List<Cannon> findCannonsOnCraft(PlayerCraft craft) {
+    private List<Cannon> findCannonsOnCraft(net.countercraft.movecraft.craft.Craft craft) {
         return CannonUtils.findCannonsOnCraft(craft);
     }
 
