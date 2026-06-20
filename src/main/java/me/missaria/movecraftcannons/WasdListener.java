@@ -322,7 +322,7 @@ public class WasdListener implements Listener {
 
         List<String> lines = new ArrayList<>(healthLines);
         if (turretListener != null) {
-            String turretLine = turretListener.getHudLine(player.getUniqueId());
+            String turretLine = turretListener.getHudLine(player);
             if (turretLine != null) lines.add(turretLine);
         }
         lines.add(Lang.get("dc.sep2", player));

@@ -4,7 +4,6 @@ import at.pavlov.cannons.cannon.Cannon;
 import net.countercraft.movecraft.MovecraftRotation;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.ChatColor;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
@@ -16,7 +15,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
@@ -32,6 +30,8 @@ public class TurretListener implements Listener {
     private final MovecraftCannonsPlugin plugin;
     public TurretListener(MovecraftCannonsPlugin plugin) { this.plugin = plugin; }
 
+    public static final int ALL_TURRETS = -1;
+
     private static final long ROTATE_DEBOUNCE_MS = 500L;
 
     private static final Set<org.bukkit.Material> RESERVED_ITEMS = Set.of(
@@ -44,32 +44,6 @@ public class TurretListener implements Listener {
     private final Map<UUID, List<Block>> turretCache = new ConcurrentHashMap<>();
     private final Map<UUID, Integer>     selectedIdx  = new ConcurrentHashMap<>();
     private final Map<UUID, Long>        lastRotate   = new ConcurrentHashMap<>();
-
-    // ── Shift → cycle turret signs in ship hitbox ─────────────────────────────
-
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onSneak(PlayerToggleSneakEvent event) {
-        if (!event.isSneaking()) return;
-        Player player = event.getPlayer();
-        PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
-        if (craft == null || !craft.getPilotLocked()) return;
-        event.setCancelled(true);
-
-        List<Block> turrets = findTurretSigns(craft, player);
-        UUID uid = player.getUniqueId();
-        turretCache.put(uid, turrets);
-
-        if (turrets.isEmpty()) {
-            selectedIdx.remove(uid);
-            player.sendMessage(Lang.get("turret.none", player));
-            return;
-        }
-
-        int idx = (selectedIdx.getOrDefault(uid, -1) + 1) % turrets.size();
-        selectedIdx.put(uid, idx);
-        player.sendMessage(Lang.msg("turret.selected", player, NamedTextColor.AQUA,
-                idx + 1, turrets.size(), turretLabel(turrets.get(idx))));
-    }
 
     // ── Left/right click → simulate sign click (SubcraftRotateSign does the rest) ──
 
@@ -90,14 +64,24 @@ public class TurretListener implements Listener {
         ItemStack held = event.getItem();
         if (held != null && RESERVED_ITEMS.contains(held.getType())) return;
 
-        Block signBlock = getSelectedSign(uid);
-        if (signBlock == null) { selectedIdx.remove(uid); return; }
+        List<Block> turrets = turretCache.get(uid);
+        if (turrets == null || turrets.isEmpty()) { selectedIdx.remove(uid); return; }
 
         event.setCancelled(true);
         if (!debounce(uid)) return;
 
         MovecraftRotation rot = isLeft ? MovecraftRotation.ANTICLOCKWISE : MovecraftRotation.CLOCKWISE;
-        simulateSignClick(signBlock, player, rot);
+        int idx = selectedIdx.get(uid);
+
+        if (idx == ALL_TURRETS) {
+            for (Block signBlock : turrets) {
+                if (isTurretSign(signBlock)) simulateSignClick(signBlock, player, rot);
+            }
+        } else {
+            Block signBlock = getSelectedSign(uid);
+            if (signBlock == null) { selectedIdx.remove(uid); return; }
+            simulateSignClick(signBlock, player, rot);
+        }
     }
 
     // ── Clear on quit ─────────────────────────────────────────────────────────
@@ -113,10 +97,49 @@ public class TurretListener implements Listener {
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    public String getHudLine(UUID uid) {
+    /** Find turret signs for use by ship menu (no debug output). */
+    public List<Block> findTurretSigns(PlayerCraft parent) {
+        return findTurretSigns(parent, null);
+    }
+
+    public void rotateTurretFromMenu(Block signBlock, Player player, MovecraftRotation rotation) {
+        simulateSignClick(signBlock, player, rotation);
+    }
+
+    public String getTurretLabel(Block signBlock) {
+        return turretLabel(signBlock);
+    }
+
+    /** Push turret list into cache (called from menu on open). */
+    public void setCache(UUID uid, List<Block> turrets) {
+        turretCache.put(uid, new ArrayList<>(turrets));
+    }
+
+    public void selectAll(UUID uid) {
+        selectedIdx.put(uid, ALL_TURRETS);
+    }
+
+    public void selectOne(UUID uid, int idx) {
+        selectedIdx.put(uid, idx);
+    }
+
+    public void deselect(UUID uid) {
+        selectedIdx.remove(uid);
+    }
+
+    /** Returns null = nothing selected, ALL_TURRETS (-1) = all, ≥0 = specific index. */
+    public Integer getSelectedIdx(UUID uid) {
+        return selectedIdx.get(uid);
+    }
+
+    public String getHudLine(Player player) {
+        UUID uid = player.getUniqueId();
         Integer idx = selectedIdx.get(uid);
         List<Block> list = turretCache.get(uid);
-        if (idx == null || list == null || list.isEmpty() || idx >= list.size()) return null;
+        if (idx == null || list == null || list.isEmpty()) return null;
+        if (idx == ALL_TURRETS)
+            return "§b🎯 " + Lang.get("turret.all", player) + " §8[" + list.size() + "]";
+        if (idx >= list.size()) return null;
         return "§b🎯 " + turretLabel(list.get(idx)) + " §8[" + (idx + 1) + "/" + list.size() + "]";
     }
 

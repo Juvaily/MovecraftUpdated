@@ -207,6 +207,15 @@ health.entry.propellers:  "Пропеллеры"
 turret.none:         "§cНет прикреплённых туррелей."
 turret.selected:     "§b🎯 Туррель §f{0}§8/§f{1}§b: §f{2}"
 turret.default_name: "Туррель"
+turret.all:          "Все турели"
+
+# ── Turret menu buttons ──────────────────────────────────────────────────────
+menu.turret.none:          "Нет турелей"
+menu.turret.all:           "Все турели"
+menu.turret.count:         "Турелей: {0}"
+menu.turret.select_lore:   "Нажмите — выбрать для управления"
+menu.turret.selected_lore: "▶ ЛКМ/ПКМ вращает эту турель"
+menu.turret.all_lore:      "▶ ЛКМ/ПКМ вращают все"
 
 # ── AIM mode ─────────────────────────────────────────────────────────────────
 msg.aim_on:   "🎯 Прицеливание включено ({0} пушек) — ПКМ часами, чтобы выключить"

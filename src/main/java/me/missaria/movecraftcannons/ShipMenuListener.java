@@ -306,9 +306,88 @@ public class ShipMenuListener implements Listener {
 
         if (windManager.isWindAffected(craft)) buildWindCompass(inv, player);
         if (isSail) buildSailButtons(inv, actions, player, craft, gear);
+        buildTurretSection(inv, actions, player, craft);
 
         menuActions.put(player.getUniqueId(), actions);
         player.openInventory(inv);
+    }
+
+    // ── Turret section (row 3 cols 3-8, slots 30-35) ─────────────────────────
+    //
+    //   Slot 30: "All turrets"
+    //   Slots 31-35: Individual turrets 1-5
+
+    @SuppressWarnings("unchecked")
+    private void buildTurretSection(Inventory inv, Consumer<Player>[] actions,
+                                    Player player, PlayerCraft craft) {
+        if (turretListener == null) return;
+
+        List<Block> turrets = turretListener.findTurretSigns(craft);
+        UUID uid = player.getUniqueId();
+        turretListener.setCache(uid, turrets);
+        Integer sel = turretListener.getSelectedIdx(uid);
+
+        if (turrets.isEmpty()) {
+            setSlot(inv, actions, 30, disabledItem(player, Lang.get("menu.turret.none", player)), null);
+            return;
+        }
+
+        boolean allSel = Integer.valueOf(TurretListener.ALL_TURRETS).equals(sel);
+        setSlot(inv, actions, 30,
+                turretAllItem(player, turrets.size(), allSel),
+                p -> {
+                    if (allSel) turretListener.deselect(p.getUniqueId());
+                    else        turretListener.selectAll(p.getUniqueId());
+                });
+
+        int[] slots = {31, 32, 33, 34, 35};
+        for (int i = 0; i < Math.min(turrets.size(), slots.length); i++) {
+            final int idx = i;
+            boolean oneSel = Integer.valueOf(i).equals(sel);
+            String label = turretListener.getTurretLabel(turrets.get(i));
+            setSlot(inv, actions, slots[i],
+                    turretItem(player, i + 1, label, oneSel),
+                    p -> {
+                        if (oneSel) turretListener.deselect(p.getUniqueId());
+                        else        turretListener.selectOne(p.getUniqueId(), idx);
+                    });
+        }
+    }
+
+    private ItemStack turretAllItem(Player player, int count, boolean selected) {
+        Material mat = selected ? Material.BLAZE_POWDER : Material.COMPASS;
+        NamedTextColor color = selected ? NamedTextColor.GREEN : NamedTextColor.WHITE;
+        String prefix = selected ? "▶ " : "";
+        ItemStack is = new ItemStack(mat);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text(prefix + Lang.get("menu.turret.all", player))
+                .color(color).decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(
+                Component.text(Lang.get("menu.turret.count", player, count))
+                        .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false),
+                Component.text(Lang.get(selected ? "menu.turret.all_lore" : "menu.turret.select_lore", player))
+                        .color(selected ? NamedTextColor.GREEN : NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false)
+        ));
+        is.setItemMeta(m);
+        return is;
+    }
+
+    private ItemStack turretItem(Player player, int num, String label, boolean selected) {
+        Material mat = selected ? Material.BLAZE_ROD : Material.STICK;
+        NamedTextColor color = selected ? NamedTextColor.AQUA : NamedTextColor.WHITE;
+        String prefix = selected ? "▶ " : "";
+        ItemStack is = new ItemStack(mat);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text(prefix + "🎯 " + num + ". " + label)
+                .color(color).decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(
+                Component.text(Lang.get(selected ? "menu.turret.selected_lore" : "menu.turret.select_lore", player))
+                        .color(selected ? NamedTextColor.AQUA : NamedTextColor.GRAY)
+                        .decoration(TextDecoration.ITALIC, false)
+        ));
+        is.setItemMeta(m);
+        return is;
     }
 
     // ── Wind compass (rows 3-5, slots 27-53) ─────────────────────────────────
