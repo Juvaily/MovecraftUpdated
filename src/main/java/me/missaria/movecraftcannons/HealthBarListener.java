@@ -365,20 +365,30 @@ public class HealthBarListener implements Listener {
         }
         if (!hasWool) return 100.0;
 
-        int totalOrig = 0, totalCurr = 0;
+        int woolCurr = 0, woolOrig = 0;
+        int otherCurr = 0, otherOrig = 0;
         for (int i = 0; i < entries.size(); i++) {
             if (origE.length <= i || origE[i] <= 0) continue;
+            int curr = sc.length > 2 + i ? sc[2 + i] : 0;
             boolean isWool = false;
             try {
                 for (Material m : entries.get(i).getMaterials())
                     if (m.name().endsWith("_WOOL")) { isWool = true; break; }
             } catch (Exception ignored) {}
-            if (!isWool) continue;
-            totalOrig += origE[i];
-            totalCurr += sc.length > 2 + i ? sc[2 + i] : 0;
+            if (isWool) {
+                woolCurr += curr;
+                woolOrig += origE[i];
+            } else if (curr > 0) {
+                otherCurr += curr;
+                otherOrig += origE[i];
+            }
         }
-        if (totalOrig <= 0) return 100.0;
-        return Math.max(0.0, Math.min(100.0, (double) totalCurr / totalOrig * 100.0));
+        // No wool at all on ship: fall back to other moveblocks
+        if (woolCurr == 0 && otherOrig > 0)
+            return Math.max(0.0, Math.min(100.0, (double) otherCurr / otherOrig * 100.0));
+        if (woolOrig <= 0) return 0.0;
+        // Wool present: other blocks present on ship boost the total
+        return Math.max(0.0, Math.min(100.0, (double)(woolCurr + otherCurr) / woolOrig * 100.0));
     }
 
     /** Health bar lines for the pilot's sidebar HUD (legacy §-color strings). */
