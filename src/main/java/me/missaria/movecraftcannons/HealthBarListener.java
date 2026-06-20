@@ -368,6 +368,12 @@ public class HealthBarListener implements Listener {
         int totalOrig = 0, totalCurr = 0;
         for (int i = 0; i < entries.size(); i++) {
             if (origE.length <= i || origE[i] <= 0) continue;
+            boolean isWool = false;
+            try {
+                for (Material m : entries.get(i).getMaterials())
+                    if (m.name().endsWith("_WOOL")) { isWool = true; break; }
+            } catch (Exception ignored) {}
+            if (!isWool) continue;
             totalOrig += origE[i];
             totalCurr += sc.length > 2 + i ? sc[2 + i] : 0;
         }
@@ -413,9 +419,7 @@ public class HealthBarListener implements Listener {
             int currE = sc.length > 2 + i ? sc[2 + i] : 0;
             if (currE <= 0) continue;
             int maxEntry = origE[i];
-            boolean met = entries.get(i).check(currE, curr);
-            String mc = met ? "§a" : "§c";
-            addEntryLines(lines, "⚙", pilot, entries.get(i), currE, maxEntry, mc, matCache);
+            addEntryLines(lines, "⚙", pilot, entries.get(i), currE, maxEntry, matCache);
         }
 
         int base = 2 + entries.size();
@@ -424,9 +428,7 @@ public class HealthBarListener implements Listener {
             int currE = sc.length > base + i ? sc[base + i] : 0;
             if (currE <= 0) continue;
             int maxEntry = origF[i];
-            boolean met = fEntries.get(i).check(currE, curr);
-            String mc = met ? "§a" : "§c";
-            addEntryLines(lines, "🧱", pilot, fEntries.get(i), currE, maxEntry, mc, matCache);
+            addEntryLines(lines, "🧱", pilot, fEntries.get(i), currE, maxEntry, matCache);
         }
 
         if (sc[1] == 1) lines.add("§c§l" + Lang.get("health.fire", pilot));
@@ -529,7 +531,7 @@ public class HealthBarListener implements Listener {
 
     private void addEntryLines(List<String> lines, String icon, Player pilot,
                                RequiredBlockEntry entry, int currE, int maxEntry,
-                               String mc, Map<Material, Integer> matCache) {
+                               Map<Material, Integer> matCache) {
         // Group entry materials by block family
         Map<String, Integer> familyCounts = new LinkedHashMap<>();
         try {
@@ -551,6 +553,7 @@ public class HealthBarListener implements Listener {
         String label = dominantName + (othersIcons.isEmpty() ? "" : ", " + othersIcons);
         double ePct = Math.min(100.0, (double) currE / maxEntry * 100.0);
         int eFilled = (int) Math.round(ePct / 20.0);
+        String mc = ePct >= 70.0 ? "§a" : ePct >= 30.0 ? "§e" : "§c";
         lines.add("§7" + icon + " " + label + " "
                 + mc + "§l" + "█".repeat(eFilled)
                 + "§8§l" + "░".repeat(5 - eFilled)
