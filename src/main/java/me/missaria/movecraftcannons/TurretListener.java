@@ -124,14 +124,33 @@ public class TurretListener implements Listener {
 
     // ── Sign scanning ─────────────────────────────────────────────────────────
 
+    private static final int[][] FACES = {
+        {1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
+    };
+
     private List<Block> findTurretSigns(PlayerCraft parent) {
         List<Block> result = new ArrayList<>();
         org.bukkit.World world = parent.getWorld();
+        java.util.Set<Long> checked = new java.util.HashSet<>();
+
         for (net.countercraft.movecraft.MovecraftLocation loc : parent.getHitBox()) {
-            Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
-            if (isTurretSign(block)) result.add(block);
+            int x = loc.getX(), y = loc.getY(), z = loc.getZ();
+            // Check the hitbox block itself
+            checkSign(world, x, y, z, checked, result);
+            // Check all 6 adjacent blocks — sign may be on the surface, outside hitbox
+            for (int[] d : FACES)
+                checkSign(world, x + d[0], y + d[1], z + d[2], checked, result);
         }
         return result;
+    }
+
+    private void checkSign(org.bukkit.World world, int x, int y, int z,
+                           java.util.Set<Long> checked, List<Block> result) {
+        // Pack coords into long for fast dedup
+        long key = ((long)(x + 30000000) << 42) | ((long)(y + 512) << 26) | (z + 30000000);
+        if (!checked.add(key)) return;
+        Block block = world.getBlockAt(x, y, z);
+        if (isTurretSign(block)) result.add(block);
     }
 
     private boolean isTurretSign(Block block) {
