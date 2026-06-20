@@ -29,6 +29,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class TurretListener implements Listener {
 
+    private final MovecraftCannonsPlugin plugin;
+    public TurretListener(MovecraftCannonsPlugin plugin) { this.plugin = plugin; }
+
     private static final long ROTATE_DEBOUNCE_MS = 500L;
 
     private static final Set<org.bukkit.Material> RESERVED_ITEMS = Set.of(
@@ -52,7 +55,7 @@ public class TurretListener implements Listener {
         if (craft == null || !craft.getPilotLocked()) return;
         event.setCancelled(true);
 
-        List<Block> turrets = findTurretSigns(craft);
+        List<Block> turrets = findTurretSigns(craft, player);
         UUID uid = player.getUniqueId();
         turretCache.put(uid, turrets);
 
@@ -128,25 +131,46 @@ public class TurretListener implements Listener {
         {1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
     };
 
-    private List<Block> findTurretSigns(PlayerCraft parent) {
+    private List<Block> findTurretSigns(PlayerCraft parent, Player debugPlayer) {
         List<Block> result = new ArrayList<>();
         org.bukkit.World world = parent.getWorld();
         java.util.Set<Long> checked = new java.util.HashSet<>();
 
         for (net.countercraft.movecraft.MovecraftLocation loc : parent.getHitBox()) {
             int x = loc.getX(), y = loc.getY(), z = loc.getZ();
-            // Check the hitbox block itself
             checkSign(world, x, y, z, checked, result);
-            // Check all 6 adjacent blocks — sign may be on the surface, outside hitbox
             for (int[] d : FACES)
                 checkSign(world, x + d[0], y + d[1], z + d[2], checked, result);
+        }
+
+        if (debugPlayer != null) {
+            debugPlayer.sendMessage("§7[Debug] hitbox=" + parent.getHitBox().size()
+                    + " checked=" + checked.size() + " turretSigns=" + result.size());
+            // Report all signs found in the scan area
+            java.util.Set<Long> signChecked = new java.util.HashSet<>();
+            for (net.countercraft.movecraft.MovecraftLocation loc : parent.getHitBox()) {
+                for (int dx = -1; dx <= 1; dx++)
+                for (int dy = -1; dy <= 1; dy++)
+                for (int dz = -1; dz <= 1; dz++) {
+                    int x = loc.getX()+dx, y = loc.getY()+dy, z = loc.getZ()+dz;
+                    long k = ((long)(x+30000000)<<42)|((long)(y+512)<<26)|(z+30000000);
+                    if (!signChecked.add(k)) continue;
+                    Block b = world.getBlockAt(x, y, z);
+                    if (b.getState() instanceof Sign s) {
+                        try {
+                            String l0 = ChatColor.stripColor(s.getLine(0));
+                            String l1 = ChatColor.stripColor(s.getLine(1));
+                            debugPlayer.sendMessage("§7[Sign] '" + l0 + "' / '" + l1 + "' @ " + x+","+y+","+z);
+                        } catch (Exception ignored) {}
+                    }
+                }
+            }
         }
         return result;
     }
 
     private void checkSign(org.bukkit.World world, int x, int y, int z,
                            java.util.Set<Long> checked, List<Block> result) {
-        // Pack coords into long for fast dedup
         long key = ((long)(x + 30000000) << 42) | ((long)(y + 512) << 26) | (z + 30000000);
         if (!checked.add(key)) return;
         Block block = world.getBlockAt(x, y, z);
