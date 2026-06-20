@@ -484,9 +484,15 @@ public class HealthBarListener implements Listener {
 
         String label;
         if (familyCounts.size() > 1) {
-            label = familyCounts.keySet().stream()
+            String dominant = familyCounts.entrySet().stream()
+                    .max(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey).orElse(null);
+            String others = familyCounts.keySet().stream()
+                    .filter(k -> !k.equals(dominant))
                     .map(k -> FAMILY_ICON.getOrDefault(k, "▪"))
                     .collect(java.util.stream.Collectors.joining());
+            String dominantName = dominant != null ? FAMILY_RU.getOrDefault(dominant, dominant) : "?";
+            label = dominantName + " и " + others;
         } else {
             label = entryLabel(pilot, entry);
         }
