@@ -445,6 +445,17 @@ public class HealthBarListener implements Listener {
         "beds",        "Кровати"
     );
 
+    private static final Map<String, String> FAMILY_ICON = Map.of(
+        "planks",      "🪵",
+        "logs",        "🌲",
+        "slabs",       "🪨",
+        "fences",      "🚧",
+        "fence_gates", "🚪",
+        "stairs",      "📐",
+        "wool",        "🐑",
+        "beds",        "🛏"
+    );
+
     private static String materialFamily(Material m) {
         String n = m.name();
         if (n.endsWith("_FENCE_GATE")) return "fence_gates";
@@ -473,8 +484,9 @@ public class HealthBarListener implements Listener {
 
         String label;
         if (familyCounts.size() > 1) {
-            label = String.join("/", familyCounts.keySet().stream()
-                    .map(k -> FAMILY_RU.getOrDefault(k, k)).toList());
+            label = familyCounts.keySet().stream()
+                    .map(k -> FAMILY_ICON.getOrDefault(k, "▪"))
+                    .collect(java.util.stream.Collectors.joining());
         } else {
             label = entryLabel(pilot, entry);
         }
