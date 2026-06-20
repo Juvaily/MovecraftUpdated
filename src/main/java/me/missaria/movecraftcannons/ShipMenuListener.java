@@ -765,6 +765,7 @@ public class ShipMenuListener implements Listener {
         java.util.Set<Integer> ncs = noCloseSlots.getOrDefault(player.getUniqueId(), java.util.Set.of());
         if (ncs.contains(slot)) {
             // Rotation button: execute without closing menu
+            player.sendMessage("§7[menu] rot-click slot=" + slot + " noClose=true");
             Bukkit.getScheduler().runTask(plugin, () -> action.accept(player));
         } else {
             player.closeInventory();
