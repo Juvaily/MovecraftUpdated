@@ -74,22 +74,46 @@ public class WindManager {
                 .forEach(p -> p.sendMessage(msg));
     }
 
-    // ── Per-second cruise effect ──────────────────────────────────────────────
+    // ── Per-second cruise / DC effect ────────────────────────────────────────
 
     private void tick() {
         int s = getStrength();
         for (Player player : Bukkit.getOnlinePlayers()) {
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
-            if (craft == null || !craft.getCruising()) continue;
-            CruiseDirection cruiseDir = craft.getCruiseDirection();
-            if (cruiseDir == CruiseDirection.UP || cruiseDir == CruiseDirection.DOWN) continue;
+            if (craft == null) continue;
             if (!hasWoolInFly(craft) && !hasWoolInMove(craft)) continue;
-            int effect = computeEffect(s, cruiseDir);
-            if (effect == 0) continue;
-            int[] cv = dirVec(cruiseDir);
-            try { craft.translate(cv[0] * effect, 0, cv[1] * effect); }
-            catch (Exception ignored) {}
+
+            if (craft.getCruising()) {
+                CruiseDirection cruiseDir = craft.getCruiseDirection();
+                if (cruiseDir == CruiseDirection.UP || cruiseDir == CruiseDirection.DOWN) continue;
+                int effect = computeEffect(s, cruiseDir);
+                if (effect == 0) continue;
+                int[] cv = dirVec(cruiseDir);
+                try { craft.translate(cv[0] * effect, 0, cv[1] * effect); }
+                catch (Exception ignored) {}
+            } else if (craft.getPilotLocked()) {
+                int[] push = computeDcPush(s);
+                if (push[0] == 0 && push[1] == 0) continue;
+                try { craft.translate(push[0], 0, push[1]); }
+                catch (Exception ignored) {}
+            }
         }
+    }
+
+    /**
+     * Wind push in the wind's own direction for DC/WASD mode (blocks/sec).
+     * calm: no effect; weak: 1; strong: 2; storm: 4
+     */
+    private int[] computeDcPush(int strength) {
+        if (strength == 0) return new int[]{0, 0};
+        int[] wv = direction.vec();
+        int force = switch (strength) {
+            case 1 -> 1;
+            case 2 -> 2;
+            case 3 -> 4;
+            default -> 0;
+        };
+        return new int[]{wv[0] * force, wv[1] * force};
     }
 
     /**
