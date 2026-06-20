@@ -1,16 +1,14 @@
 package me.missaria.movecraftcannons;
 
 import at.pavlov.cannons.cannon.Cannon;
-import net.countercraft.movecraft.MovecraftLocation;
 import net.countercraft.movecraft.MovecraftRotation;
-import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
-import net.countercraft.movecraft.craft.type.CraftType;
-import net.countercraft.movecraft.events.CraftReleaseEvent;
-import net.countercraft.movecraft.util.hitboxes.HitBox;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.Material;
+import org.bukkit.ChatColor;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
+import org.bukkit.block.Sign;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -19,6 +17,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerToggleSneakEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
@@ -30,18 +29,20 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class TurretListener implements Listener {
 
-    private static final long ROTATE_DEBOUNCE_MS = 400L;
+    private static final long ROTATE_DEBOUNCE_MS = 500L;
 
-    private static final Set<Material> RESERVED_ITEMS = Set.of(
-            Material.WRITTEN_BOOK, Material.WRITABLE_BOOK,
-            Material.CLOCK
+    private static final Set<org.bukkit.Material> RESERVED_ITEMS = Set.of(
+            org.bukkit.Material.WRITTEN_BOOK,
+            org.bukkit.Material.WRITABLE_BOOK,
+            org.bukkit.Material.CLOCK
     );
 
-    private final Map<UUID, List<Craft>> turretCache = new ConcurrentHashMap<>();
+    // Stores sign blocks of found turrets, keyed by pilot UUID
+    private final Map<UUID, List<Block>> turretCache = new ConcurrentHashMap<>();
     private final Map<UUID, Integer>     selectedIdx  = new ConcurrentHashMap<>();
     private final Map<UUID, Long>        lastRotate   = new ConcurrentHashMap<>();
 
-    // ── Shift → cycle attached turrets ───────────────────────────────────────
+    // ── Shift → cycle turret signs in ship hitbox ─────────────────────────────
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onSneak(PlayerToggleSneakEvent event) {
@@ -51,7 +52,7 @@ public class TurretListener implements Listener {
         if (craft == null || !craft.getPilotLocked()) return;
         event.setCancelled(true);
 
-        List<Craft> turrets = findAttachedTurrets(craft);
+        List<Block> turrets = findTurretSigns(craft);
         UUID uid = player.getUniqueId();
         turretCache.put(uid, turrets);
 
@@ -64,10 +65,10 @@ public class TurretListener implements Listener {
         int idx = (selectedIdx.getOrDefault(uid, -1) + 1) % turrets.size();
         selectedIdx.put(uid, idx);
         player.sendMessage(Lang.msg("turret.selected", player, NamedTextColor.AQUA,
-                idx + 1, turrets.size(), turretName(turrets.get(idx))));
+                idx + 1, turrets.size(), turretLabel(turrets.get(idx))));
     }
 
-    // ── Left/right click → rotate selected turret ────────────────────────────
+    // ── Left/right click → simulate sign click (SubcraftRotateSign does the rest) ──
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInteract(PlayerInteractEvent event) {
@@ -86,23 +87,17 @@ public class TurretListener implements Listener {
         ItemStack held = event.getItem();
         if (held != null && RESERVED_ITEMS.contains(held.getType())) return;
 
-        Craft turret = getSelectedTurret(uid);
-        if (turret == null) { selectedIdx.remove(uid); return; }
+        Block signBlock = getSelectedSign(uid);
+        if (signBlock == null) { selectedIdx.remove(uid); return; }
 
         event.setCancelled(true);
         if (!debounce(uid)) return;
 
-        rotateTurret(turret, isLeft ? MovecraftRotation.ANTICLOCKWISE : MovecraftRotation.CLOCKWISE);
+        MovecraftRotation rot = isLeft ? MovecraftRotation.ANTICLOCKWISE : MovecraftRotation.CLOCKWISE;
+        simulateSignClick(signBlock, player, rot);
     }
 
-    // ── Clear on release / quit ───────────────────────────────────────────────
-
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onRelease(CraftReleaseEvent event) {
-        if (!(event.getCraft() instanceof net.countercraft.movecraft.craft.PilotedCraft pc)) return;
-        Player pilot = pc.getPilot();
-        if (pilot != null) clear(pilot.getUniqueId());
-    }
+    // ── Clear on quit ─────────────────────────────────────────────────────────
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) { clear(event.getPlayer().getUniqueId()); }
@@ -115,68 +110,72 @@ public class TurretListener implements Listener {
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    public Craft getSelectedTurret(UUID uid) {
-        Integer idx = selectedIdx.get(uid);
-        if (idx == null) return null;
-        List<Craft> list = turretCache.get(uid);
-        if (list == null || idx >= list.size()) return null;
-        Craft t = list.get(idx);
-        if (!isRegistered(t)) { clear(uid); return null; }
-        return t;
-    }
-
     public String getHudLine(UUID uid) {
         Integer idx = selectedIdx.get(uid);
-        List<Craft> list = turretCache.get(uid);
+        List<Block> list = turretCache.get(uid);
         if (idx == null || list == null || list.isEmpty() || idx >= list.size()) return null;
-        return "§b🎯 " + turretName(list.get(idx)) + " §8[" + (idx + 1) + "/" + list.size() + "]";
+        return "§b🎯 " + turretLabel(list.get(idx)) + " §8[" + (idx + 1) + "/" + list.size() + "]";
     }
 
+    /** Turret cannons are inside the parent craft's hitbox, so fire-all already covers them. */
     public List<Cannon> getAttachedTurretCannons(PlayerCraft parent) {
-        List<Cannon> result = new ArrayList<>();
-        for (Craft t : findAttachedTurrets(parent))
-            result.addAll(CannonUtils.findCannonsOnCraft(t));
-        return result;
+        return List.of();
     }
 
-    // ── Turret detection ──────────────────────────────────────────────────────
+    // ── Sign scanning ─────────────────────────────────────────────────────────
 
-    public List<Craft> findAttachedTurrets(PlayerCraft parent) {
-        List<Craft> result = new ArrayList<>();
-        HitBox parentBox = parent.getHitBox();
-        for (Craft craft : CraftManager.getInstance().getCraftsInWorld(parent.getWorld())) {
-            if (craft == parent) continue;
-            if (!isTurretType(craft)) continue;
-            if (touches(parentBox, craft.getHitBox())) result.add(craft);
+    private List<Block> findTurretSigns(PlayerCraft parent) {
+        List<Block> result = new ArrayList<>();
+        org.bukkit.World world = parent.getWorld();
+        for (net.countercraft.movecraft.MovecraftLocation loc : parent.getHitBox()) {
+            Block block = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
+            if (isTurretSign(block)) result.add(block);
         }
         return result;
     }
 
-    private boolean isTurretType(Craft craft) {
-        try { return "Turret".equalsIgnoreCase(craft.getType().getStringProperty(CraftType.NAME)); }
-        catch (Exception e) { return false; }
-    }
-
-    private boolean isRegistered(Craft turret) {
-        try { return CraftManager.getInstance().getCraftsInWorld(turret.getWorld()).contains(turret); }
-        catch (Exception e) { return false; }
-    }
-
-    private boolean touches(HitBox a, HitBox b) {
-        return b.getMinX() <= a.getMaxX() + 1 && b.getMaxX() >= a.getMinX() - 1
-            && b.getMinY() <= a.getMaxY() + 1 && b.getMaxY() >= a.getMinY() - 1
-            && b.getMinZ() <= a.getMaxZ() + 1 && b.getMaxZ() >= a.getMinZ() - 1;
-    }
-
-    private void rotateTurret(Craft turret, MovecraftRotation rot) {
-        HitBox hb = turret.getHitBox();
+    private boolean isTurretSign(Block block) {
+        if (!(block.getState() instanceof Sign sign)) return false;
+        // Check both sides of the sign (Bukkit 1.20+)
+        for (var side : org.bukkit.block.sign.Side.values()) {
+            try {
+                String line0 = ChatColor.stripColor(sign.getSide(side).getLine(0));
+                if ("Subcraft Rotate".equalsIgnoreCase(line0)) return true;
+            } catch (Exception ignored) {}
+        }
+        // Fallback: getLine(0) for older API
         try {
-            turret.rotate(rot, new MovecraftLocation(
-                    (hb.getMinX() + hb.getMaxX()) / 2,
-                    (hb.getMinY() + hb.getMaxY()) / 2,
-                    (hb.getMinZ() + hb.getMaxZ()) / 2));
+            String line0 = ChatColor.stripColor(sign.getLine(0));
+            if ("Subcraft Rotate".equalsIgnoreCase(line0)) return true;
         } catch (Exception ignored) {}
+        return false;
     }
+
+    private Block getSelectedSign(UUID uid) {
+        Integer idx = selectedIdx.get(uid);
+        List<Block> list = turretCache.get(uid);
+        if (idx == null || list == null || idx >= list.size()) return null;
+        Block b = list.get(idx);
+        // Re-validate: still a turret sign?
+        if (!isTurretSign(b)) { turretCache.remove(uid); selectedIdx.remove(uid); return null; }
+        return b;
+    }
+
+    // ── Sign click simulation ─────────────────────────────────────────────────
+
+    private void simulateSignClick(Block signBlock, Player player, MovecraftRotation rotation) {
+        Action action = rotation == MovecraftRotation.CLOCKWISE
+                ? Action.RIGHT_CLICK_BLOCK
+                : Action.LEFT_CLICK_BLOCK;
+        PlayerInteractEvent fake = new PlayerInteractEvent(
+                player, action,
+                player.getInventory().getItemInMainHand(),
+                signBlock, BlockFace.SOUTH,
+                EquipmentSlot.HAND);
+        org.bukkit.Bukkit.getPluginManager().callEvent(fake);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private boolean debounce(UUID uid) {
         long now = System.currentTimeMillis();
@@ -186,9 +185,19 @@ public class TurretListener implements Listener {
         return true;
     }
 
-    private String turretName(Craft turret) {
-        try { String n = turret.getName(); if (n != null && !n.isBlank()) return n; }
-        catch (Exception ignored) {}
+    private String turretLabel(Block signBlock) {
+        try {
+            Sign sign = (Sign) signBlock.getState();
+            // Try to get craft type name from line 1
+            for (var side : org.bukkit.block.sign.Side.values()) {
+                try {
+                    String line1 = ChatColor.stripColor(sign.getSide(side).getLine(1));
+                    if (line1 != null && !line1.isBlank()) return line1;
+                } catch (Exception ignored) {}
+            }
+            String line1 = ChatColor.stripColor(sign.getLine(1));
+            if (line1 != null && !line1.isBlank()) return line1;
+        } catch (Exception ignored) {}
         return Lang.get("turret.default_name");
     }
 }
