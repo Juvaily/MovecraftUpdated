@@ -37,6 +37,7 @@ public class WasdListener implements Listener {
     private final MovecraftCannonsPlugin plugin;
     private final WindManager windManager;
     private final HealthBarListener healthBarListener;
+    private TurretListener turretListener;
 
     private final Map<UUID, int[]>    latestDir       = new ConcurrentHashMap<>();
     private final Map<UUID, Long>     latestTime      = new ConcurrentHashMap<>();
@@ -54,6 +55,8 @@ public class WasdListener implements Listener {
     private static final long   ROTATE_DEBOUNCE = 600L;
     private static final float  PILOT_SPEED     = 0.005f;
     private static final double MOVE_THRESHOLD  = 0.001;
+
+    public void setTurretListener(TurretListener tl) { this.turretListener = tl; }
 
     public WasdListener(MovecraftCannonsPlugin plugin, WindManager windManager, HealthBarListener healthBarListener) {
         this.plugin = plugin;
@@ -318,6 +321,10 @@ public class WasdListener implements Listener {
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
         List<String> lines = new ArrayList<>(healthLines);
+        if (turretListener != null) {
+            String turretLine = turretListener.getHudLine(player.getUniqueId());
+            if (turretLine != null) lines.add(turretLine);
+        }
         lines.add(Lang.get("dc.sep2", player));
         lines.add(Lang.get("dc.wind", player, windManager.getStrengthDisplay(player)));
         lines.add(Lang.get("hud.hide_hint", player));

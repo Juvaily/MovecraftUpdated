@@ -32,6 +32,10 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(aimListener, this);
         shipMenu = new ShipMenuListener(this, windManager, aimListener, healthBar);
         getServer().getPluginManager().registerEvents(shipMenu, this);
+        TurretListener turretListener = new TurretListener();
+        getServer().getPluginManager().registerEvents(turretListener, this);
+        wasdListener.setTurretListener(turretListener);
+        shipMenu.setTurretListener(turretListener);
 
         getLogger().info("MovecraftCannons enabled.");
         if (debug) getLogger().info("  Debug mode ON.");

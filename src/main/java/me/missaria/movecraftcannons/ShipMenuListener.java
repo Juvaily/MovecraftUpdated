@@ -65,6 +65,7 @@ public class ShipMenuListener implements Listener {
     private final WindManager windManager;
     private final AimListener aimListener;
     private final HealthBarListener healthBarListener;
+    private TurretListener turretListener;
 
     // Per-player: slot → action to execute on click
     private final Map<UUID, Consumer<Player>[]> menuActions   = new ConcurrentHashMap<>();
@@ -76,6 +77,8 @@ public class ShipMenuListener implements Listener {
     private final Map<UUID, CruiseDirection>    reducedDirs   = new ConcurrentHashMap<>();
     // Base speed cached while craft is still cruising (before we stop it for reduced gears)
     private final Map<UUID, Integer>            baseBpsCache  = new ConcurrentHashMap<>();
+
+    public void setTurretListener(TurretListener tl) { this.turretListener = tl; }
 
     public ShipMenuListener(MovecraftCannonsPlugin plugin, WindManager windManager,
                             AimListener aimListener, HealthBarListener healthBarListener) {
@@ -862,7 +865,9 @@ public class ShipMenuListener implements Listener {
             player.sendMessage(Lang.msg("msg.cannons_unavailable", player, NamedTextColor.RED));
             return;
         }
-        List<Cannon> all = findCannonsOnCraft(craft);
+        List<Cannon> all = new ArrayList<>(findCannonsOnCraft(craft));
+        if (turretListener != null)
+            all.addAll(turretListener.getAttachedTurretCannons(craft));
         if (all.isEmpty()) {
             player.sendMessage(Lang.msg("msg.no_cannons", player, NamedTextColor.YELLOW));
             return;
