@@ -31,6 +31,8 @@ import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -50,7 +52,8 @@ public class HealthBarListener implements Listener {
     private final Map<UUID, List<RequiredBlockEntry>> flyEntries     = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    origFlyCount   = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    flyMinCount    = new ConcurrentHashMap<>();
-    private final Map<UUID, int[]>                    scanCache      = new ConcurrentHashMap<>();
+    private final Map<UUID, int[]>                    scanCache          = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<Material, Integer>>   materialCountCache = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -76,7 +79,7 @@ public class HealthBarListener implements Listener {
         moveEntries.put(uid, entries);
         flyEntries.put(uid, fEntries);
 
-        int[] sc = scan(craft, entries, fEntries);
+        int[] sc = scan(uid, craft, entries, fEntries);
         origBlockCount.put(uid, sc[0]);
         int craftSize = sc[0];
         if (!entries.isEmpty()) {
@@ -194,7 +197,7 @@ public class HealthBarListener implements Listener {
 
         List<RequiredBlockEntry> entries  = moveEntries.getOrDefault(uid, List.of());
         List<RequiredBlockEntry> fEntries = flyEntries.getOrDefault(uid, List.of());
-        int[] sc    = scan(craft, entries, fEntries);
+        int[] sc    = scan(uid, craft, entries, fEntries);
         scanCache.put(uid, sc);
         int   orig  = origBlockCount.getOrDefault(uid, sc[0]);
         int[] origE = origEntryCount.getOrDefault(uid, new int[0]);
@@ -214,6 +217,7 @@ public class HealthBarListener implements Listener {
         origFlyCount.remove(uid);
         flyMinCount.remove(uid);
         scanCache.remove(uid);
+        materialCountCache.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
@@ -227,10 +231,11 @@ public class HealthBarListener implements Listener {
      *   [2 .. 2+move-1]           = block count matching moveEntries.get(i)
      *   [2+move .. 2+move+fly-1]  = block count matching flyEntries.get(i)
      */
-    private int[] scan(Craft craft, List<RequiredBlockEntry> entries, List<RequiredBlockEntry> fEntries) {
+    private int[] scan(UUID uid, Craft craft, List<RequiredBlockEntry> entries, List<RequiredBlockEntry> fEntries) {
         int[] result = new int[2 + entries.size() + fEntries.size()];
         EnumSet<Material> allowed = allowedMats(craft);
         World world = craft.getWorld();
+        Map<Material, Integer> matCounts = new HashMap<>();
 
         for (var loc : craft.getHitBox()) {
             Material m = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ()).getType();
@@ -247,6 +252,7 @@ public class HealthBarListener implements Listener {
                 for (int i = 0; i < fEntries.size(); i++) {
                     if (fEntries.get(i).contains(m)) result[2 + entries.size() + i]++;
                 }
+                matCounts.merge(m, 1, Integer::sum);
             }
 
             if (result[1] == 0) {
@@ -258,6 +264,7 @@ public class HealthBarListener implements Listener {
                 }
             }
         }
+        materialCountCache.put(uid, matCounts);
         return result;
     }
 
@@ -399,6 +406,8 @@ public class HealthBarListener implements Listener {
                 + " " + hCol + String.format("%.0f%%", pct)
                 + " §8(" + curr + "/" + orig + ")");
 
+        Map<Material, Integer> matCache = materialCountCache.getOrDefault(uid, Map.of());
+
         for (int i = 0; i < entries.size(); i++) {
             if (origE.length <= i || origE[i] <= 0) continue;
             int currE = sc.length > 2 + i ? sc[2 + i] : 0;
@@ -406,12 +415,7 @@ public class HealthBarListener implements Listener {
             int maxEntry = origE[i];
             boolean met = entries.get(i).check(currE, curr);
             String mc = met ? "§a" : "§c";
-            double ePct = Math.min(100.0, (double) currE / maxEntry * 100.0);
-            int eFilled = (int) Math.round(ePct / 20.0);
-            lines.add("§7⚙ " + entryLabel(pilot, entries.get(i)) + " "
-                    + mc + "§l" + "█".repeat(eFilled)
-                    + "§8§l" + "░".repeat(5 - eFilled)
-                    + " " + mc + String.format("%.0f%%", ePct));
+            addEntryLines(lines, "⚙", pilot, entries.get(i), currE, maxEntry, mc, matCache);
         }
 
         int base = 2 + entries.size();
@@ -422,17 +426,73 @@ public class HealthBarListener implements Listener {
             int maxEntry = origF[i];
             boolean met = fEntries.get(i).check(currE, curr);
             String mc = met ? "§a" : "§c";
-            double ePct = Math.min(100.0, (double) currE / maxEntry * 100.0);
-            int eFilled = (int) Math.round(ePct / 20.0);
-            lines.add("§7🧱 " + entryLabel(pilot, fEntries.get(i)) + " "
-                    + mc + "§l" + "█".repeat(eFilled)
-                    + "§8§l" + "░".repeat(5 - eFilled)
-                    + " " + mc + String.format("%.0f%%", ePct));
+            addEntryLines(lines, "🧱", pilot, fEntries.get(i), currE, maxEntry, mc, matCache);
         }
 
         if (sc[1] == 1) lines.add("§c§l" + Lang.get("health.fire", pilot));
 
         return lines;
+    }
+
+    private static final Map<String, String> FAMILY_RU = Map.of(
+        "planks",      "Доски",
+        "logs",        "Брёвна",
+        "slabs",       "Плиты",
+        "fences",      "Заборы",
+        "fence_gates", "Ворота",
+        "stairs",      "Ступени",
+        "wool",        "Шерсть",
+        "beds",        "Кровати"
+    );
+
+    private static String materialFamily(Material m) {
+        String n = m.name();
+        if (n.endsWith("_FENCE_GATE")) return "fence_gates";
+        if (n.endsWith("_FENCE"))      return "fences";
+        if (n.endsWith("_PLANKS"))     return "planks";
+        if (n.endsWith("_LOG"))        return "logs";
+        if (n.endsWith("_WOOD"))       return "logs";
+        if (n.endsWith("_SLAB"))       return "slabs";
+        if (n.endsWith("_STAIRS"))     return "stairs";
+        if (n.endsWith("_WOOL"))       return "wool";
+        if (n.endsWith("_BED"))        return "beds";
+        return n.toLowerCase();
+    }
+
+    private void addEntryLines(List<String> lines, String icon, Player pilot,
+                               RequiredBlockEntry entry, int currE, int maxEntry,
+                               String mc, Map<Material, Integer> matCache) {
+        // Group entry materials by block family
+        Map<String, Integer> familyCounts = new LinkedHashMap<>();
+        try {
+            for (Object obj : entry.getMaterials()) {
+                Material m = (Material) obj;
+                familyCounts.merge(materialFamily(m), matCache.getOrDefault(m, 0), Integer::sum);
+            }
+        } catch (Exception ignored) {}
+
+        if (familyCounts.size() > 1) {
+            // Multi-family entry: one bar per family
+            for (Map.Entry<String, Integer> fe : familyCounts.entrySet()) {
+                int famCount = fe.getValue();
+                if (famCount <= 0) continue;
+                double ePct = Math.min(100.0, (double) famCount / maxEntry * 100.0);
+                int eFilled = (int) Math.round(ePct / 20.0);
+                String famLabel = FAMILY_RU.getOrDefault(fe.getKey(), fe.getKey());
+                lines.add("§7" + icon + " " + famLabel + " "
+                        + mc + "§l" + "█".repeat(eFilled)
+                        + "§8§l" + "░".repeat(5 - eFilled)
+                        + " " + mc + String.format("%.0f%%", ePct));
+            }
+        } else {
+            // Single-family entry: one combined bar
+            double ePct = Math.min(100.0, (double) currE / maxEntry * 100.0);
+            int eFilled = (int) Math.round(ePct / 20.0);
+            lines.add("§7" + icon + " " + entryLabel(pilot, entry) + " "
+                    + mc + "§l" + "█".repeat(eFilled)
+                    + "§8§l" + "░".repeat(5 - eFilled)
+                    + " " + mc + String.format("%.0f%%", ePct));
+        }
     }
 
     /** Label for a moveblock/flyblock entry: lang file → RU_NAMES → fallback. */
