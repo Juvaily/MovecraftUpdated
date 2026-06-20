@@ -314,7 +314,7 @@ public class WasdListener implements Listener {
     private Scoreboard buildPilotScoreboard(Player player, String shipName, List<String> healthLines) {
         Scoreboard sb = Bukkit.getScoreboardManager().getNewScoreboard();
         Objective obj = sb.registerNewObjective("hud", "dummy",
-                Component.text(shipName).color(NamedTextColor.GOLD).decoration(TextDecoration.BOLD, true));
+                Component.text(shipName).color(NamedTextColor.GOLD));
         obj.setDisplaySlot(DisplaySlot.SIDEBAR);
 
         List<String> lines = new ArrayList<>(healthLines);
