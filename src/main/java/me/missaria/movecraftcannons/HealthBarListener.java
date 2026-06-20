@@ -537,14 +537,12 @@ public class HealthBarListener implements Listener {
                 .max(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey).orElse(null);
         String dominantName  = dominant != null ? familyName(dominant, pilot) : entryLabel(pilot, entry);
-        String dominantIcon  = dominant != null ? FAMILY_ICON.getOrDefault(dominant, "") : "";
         String othersIcons   = familyCounts.keySet().stream()
                 .filter(k -> !k.equals(dominant))
                 .map(k -> FAMILY_ICON.getOrDefault(k, ""))
                 .filter(s -> !s.isEmpty())
                 .collect(java.util.stream.Collectors.joining());
-        String label = dominantName + " " + dominantIcon
-                + (othersIcons.isEmpty() ? "" : " и " + othersIcons);
+        String label = dominantName + (othersIcons.isEmpty() ? "" : ", " + othersIcons);
         double ePct = Math.min(100.0, (double) currE / maxEntry * 100.0);
         int eFilled = (int) Math.round(ePct / 20.0);
         lines.add("§7" + icon + " " + label + " "
