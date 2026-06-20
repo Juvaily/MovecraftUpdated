@@ -41,9 +41,11 @@ public class TurretListener implements Listener {
     );
 
     // Stores sign blocks of found turrets, keyed by pilot UUID
-    private final Map<UUID, List<Block>> turretCache = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer>     selectedIdx  = new ConcurrentHashMap<>();
-    private final Map<UUID, Long>        lastRotate   = new ConcurrentHashMap<>();
+    private final Map<UUID, List<Block>> turretCache        = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer>     selectedIdx        = new ConcurrentHashMap<>();
+    private final Map<UUID, Long>        lastRotate         = new ConcurrentHashMap<>();
+    // Prevents onInteract from re-catching and cancelling the fake events we fire
+    private final Set<UUID>              simulatingRotation = ConcurrentHashMap.newKeySet();
 
     // ── Left/right click → simulate sign click (SubcraftRotateSign does the rest) ──
 
@@ -59,6 +61,8 @@ public class TurretListener implements Listener {
         if (craft == null || !craft.getPilotLocked()) return;
 
         UUID uid = player.getUniqueId();
+        // Skip events fired by our own simulateSignClick to let SubcraftRotateSign process them
+        if (simulatingRotation.contains(uid)) return;
         if (!selectedIdx.containsKey(uid)) return;
 
         ItemStack held = event.getItem();
@@ -242,7 +246,13 @@ public class TurretListener implements Listener {
                 player.getInventory().getItemInMainHand(),
                 signBlock, BlockFace.SOUTH,
                 EquipmentSlot.HAND);
-        org.bukkit.Bukkit.getPluginManager().callEvent(fake);
+        UUID uid = player.getUniqueId();
+        simulatingRotation.add(uid);
+        try {
+            org.bukkit.Bukkit.getPluginManager().callEvent(fake);
+        } finally {
+            simulatingRotation.remove(uid);
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

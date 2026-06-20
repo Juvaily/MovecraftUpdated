@@ -69,6 +69,8 @@ public class ShipMenuListener implements Listener {
 
     // Per-player: slot → action to execute on click
     private final Map<UUID, Consumer<Player>[]> menuActions   = new ConcurrentHashMap<>();
+    // Slots that execute action WITHOUT closing the menu (turret rotation buttons)
+    private final Map<UUID, java.util.Set<Integer>> noCloseSlots = new ConcurrentHashMap<>();
     // Running repair tasks per player
     private final Map<UUID, BukkitTask>         activeRepairs = new ConcurrentHashMap<>();
     // Sail gear per player (only for sail ships)
@@ -312,10 +314,13 @@ public class ShipMenuListener implements Listener {
         player.openInventory(inv);
     }
 
-    // ── Turret section (row 3 cols 3-8, slots 30-35) ─────────────────────────
+    // ── Turret section ────────────────────────────────────────────────────────
     //
-    //   Slot 30: "All turrets"
-    //   Slots 31-35: Individual turrets 1-5
+    //  Row 3 cols 3-5 (slots 30-32):  ← / [Все турели toggle] / →
+    //  Slots 33-35:                   Individual select buttons for turrets 3-5
+    //  Row 5 cols 3-8 (slots 48-53):  ← / [Турель 1] / →  |  ← / [Турель 2] / →
+    //
+    //  ← → buttons keep the menu open; turret name buttons select for DC LMB/RMB.
 
     @SuppressWarnings("unchecked")
     private void buildTurretSection(Inventory inv, Consumer<Player>[] actions,
@@ -327,31 +332,85 @@ public class ShipMenuListener implements Listener {
         turretListener.setCache(uid, turrets);
         Integer sel = turretListener.getSelectedIdx(uid);
 
+        java.util.Set<Integer> ncs = noCloseSlots.computeIfAbsent(uid, k -> new java.util.HashSet<>());
+        ncs.clear();
+
         if (turrets.isEmpty()) {
-            setSlot(inv, actions, 30, disabledItem(player, Lang.get("menu.turret.none", player)), null);
+            setSlot(inv, actions, 31, disabledItem(player, Lang.get("menu.turret.none", player)), null);
             return;
         }
 
+        // ── Row 3: "All turrets" rotate + toggle ──────────────────────────────
         boolean allSel = Integer.valueOf(TurretListener.ALL_TURRETS).equals(sel);
-        setSlot(inv, actions, 30,
-                turretAllItem(player, turrets.size(), allSel),
+
+        setSlot(inv, actions, 30, turretRotBtn(player, false),
+                p -> rotateTurrets(p, turrets, MovecraftRotation.ANTICLOCKWISE));
+        ncs.add(30);
+
+        setSlot(inv, actions, 31, turretAllItem(player, turrets.size(), allSel),
                 p -> {
                     if (allSel) turretListener.deselect(p.getUniqueId());
                     else        turretListener.selectAll(p.getUniqueId());
                 });
 
-        int[] slots = {31, 32, 33, 34, 35};
-        for (int i = 0; i < Math.min(turrets.size(), slots.length); i++) {
+        setSlot(inv, actions, 32, turretRotBtn(player, true),
+                p -> rotateTurrets(p, turrets, MovecraftRotation.CLOCKWISE));
+        ncs.add(32);
+
+        // ── Slots 33-35: selection-only for turrets 3-5 ──────────────────────
+        int[] extraSlots = {33, 34, 35};
+        for (int i = 2; i < Math.min(turrets.size(), 2 + extraSlots.length); i++) {
             final int idx = i;
             boolean oneSel = Integer.valueOf(i).equals(sel);
             String label = turretListener.getTurretLabel(turrets.get(i));
-            setSlot(inv, actions, slots[i],
-                    turretItem(player, i + 1, label, oneSel),
+            setSlot(inv, actions, extraSlots[i - 2],
+                    turretItem(player, i + 1, label, oneSel, false),
                     p -> {
                         if (oneSel) turretListener.deselect(p.getUniqueId());
                         else        turretListener.selectOne(p.getUniqueId(), idx);
                     });
         }
+
+        // ── Row 5: individual turrets 1-2 with rotate buttons ────────────────
+        int[][] turretRowSlots = {{48, 49, 50}, {51, 52, 53}};
+        for (int i = 0; i < Math.min(turrets.size(), 2); i++) {
+            final int idx = i;
+            boolean oneSel = Integer.valueOf(i).equals(sel);
+            String label = turretListener.getTurretLabel(turrets.get(i));
+            Block sign = turrets.get(i);
+            int[] row = turretRowSlots[i];
+
+            setSlot(inv, actions, row[0], turretRotBtn(player, false),
+                    p -> rotateTurrets(p, List.of(sign), MovecraftRotation.ANTICLOCKWISE));
+            ncs.add(row[0]);
+
+            setSlot(inv, actions, row[1], turretItem(player, i + 1, label, oneSel, true),
+                    p -> {
+                        if (oneSel) turretListener.deselect(p.getUniqueId());
+                        else        turretListener.selectOne(p.getUniqueId(), idx);
+                    });
+
+            setSlot(inv, actions, row[2], turretRotBtn(player, true),
+                    p -> rotateTurrets(p, List.of(sign), MovecraftRotation.CLOCKWISE));
+            ncs.add(row[2]);
+        }
+    }
+
+    private void rotateTurrets(Player player, List<Block> turrets, MovecraftRotation rot) {
+        if (turretListener == null) return;
+        for (Block sign : turrets) turretListener.rotateTurretFromMenu(sign, player, rot);
+    }
+
+    private ItemStack turretRotBtn(Player player, boolean clockwise) {
+        String key = clockwise ? "menu.turret.rot_right" : "menu.turret.rot_left";
+        ItemStack is = new ItemStack(clockwise ? Material.SPECTRAL_ARROW : Material.ARROW);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text(Lang.get(key, player))
+                .color(NamedTextColor.YELLOW).decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(Component.text(Lang.get("menu.turret.rot_lore", player))
+                .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
+        is.setItemMeta(m);
+        return is;
     }
 
     private ItemStack turretAllItem(Player player, int count, boolean selected) {
@@ -373,7 +432,7 @@ public class ShipMenuListener implements Listener {
         return is;
     }
 
-    private ItemStack turretItem(Player player, int num, String label, boolean selected) {
+    private ItemStack turretItem(Player player, int num, String label, boolean selected, boolean showRotLore) {
         Material mat = selected ? Material.BLAZE_ROD : Material.STICK;
         NamedTextColor color = selected ? NamedTextColor.AQUA : NamedTextColor.WHITE;
         String prefix = selected ? "▶ " : "";
@@ -381,11 +440,14 @@ public class ShipMenuListener implements Listener {
         ItemMeta m = is.getItemMeta();
         m.displayName(Component.text(prefix + "🎯 " + num + ". " + label)
                 .color(color).decoration(TextDecoration.ITALIC, false));
-        m.lore(List.of(
-                Component.text(Lang.get(selected ? "menu.turret.selected_lore" : "menu.turret.select_lore", player))
-                        .color(selected ? NamedTextColor.AQUA : NamedTextColor.GRAY)
-                        .decoration(TextDecoration.ITALIC, false)
-        ));
+        List<Component> lore = new ArrayList<>();
+        lore.add(Component.text(Lang.get(selected ? "menu.turret.selected_lore" : "menu.turret.select_lore", player))
+                .color(selected ? NamedTextColor.AQUA : NamedTextColor.GRAY)
+                .decoration(TextDecoration.ITALIC, false));
+        if (showRotLore)
+            lore.add(Component.text(Lang.get("menu.turret.rot_hint", player))
+                    .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        m.lore(lore);
         is.setItemMeta(m);
         return is;
     }
@@ -700,14 +762,22 @@ public class ShipMenuListener implements Listener {
         if (actions == null || slot >= actions.length || actions[slot] == null) return;
 
         Consumer<Player> action = actions[slot];
-        player.closeInventory();
-        Bukkit.getScheduler().runTask(plugin, () -> action.accept(player));
+        java.util.Set<Integer> ncs = noCloseSlots.getOrDefault(player.getUniqueId(), java.util.Set.of());
+        if (ncs.contains(slot)) {
+            // Rotation button: execute without closing menu
+            Bukkit.getScheduler().runTask(plugin, () -> action.accept(player));
+        } else {
+            player.closeInventory();
+            Bukkit.getScheduler().runTask(plugin, () -> action.accept(player));
+        }
     }
 
     @EventHandler
     public void onMenuClose(InventoryCloseEvent event) {
         if (!(event.getInventory().getHolder() instanceof ShipMenuHolder)) return;
-        menuActions.remove(event.getPlayer().getUniqueId());
+        UUID uid = event.getPlayer().getUniqueId();
+        menuActions.remove(uid);
+        noCloseSlots.remove(uid);
     }
 
     // ── Blueprint rotation tracking ───────────────────────────────────────────
