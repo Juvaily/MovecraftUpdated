@@ -182,16 +182,20 @@ public class TurretListener implements Listener {
         // Check both sides of the sign (Bukkit 1.20+)
         for (var side : org.bukkit.block.sign.Side.values()) {
             try {
-                String line0 = ChatColor.stripColor(sign.getSide(side).getLine(0));
-                if ("Subcraft Rotate".equalsIgnoreCase(line0)) return true;
+                if (matchesTurretLine(ChatColor.stripColor(sign.getSide(side).getLine(0)))) return true;
             } catch (Exception ignored) {}
         }
         // Fallback: getLine(0) for older API
         try {
-            String line0 = ChatColor.stripColor(sign.getLine(0));
-            if ("Subcraft Rotate".equalsIgnoreCase(line0)) return true;
+            if (matchesTurretLine(ChatColor.stripColor(sign.getLine(0)))) return true;
         } catch (Exception ignored) {}
         return false;
+    }
+
+    private static boolean matchesTurretLine(String line) {
+        if (line == null) return false;
+        String stripped = line.replaceAll("[\\[\\]]", "").trim();
+        return "Subcraft Rotate".equalsIgnoreCase(stripped);
     }
 
     private Block getSelectedSign(UUID uid) {
