@@ -465,6 +465,9 @@ public class HealthBarListener implements Listener {
         FAMILY_ICON.put("lapis",         "🔵");
         FAMILY_ICON.put("coal",          "🪨");
         FAMILY_ICON.put("chests",        "📦");
+        FAMILY_ICON.put("barrels",       "🪣");
+        FAMILY_ICON.put("hoppers",       "🔽");
+        FAMILY_ICON.put("dispensers",    "📤");
         FAMILY_ICON.put("tnt",           "💥");
         FAMILY_ICON.put("obsidian",      "⚫");
         FAMILY_ICON.put("ice",           "🧊");
@@ -504,7 +507,10 @@ public class HealthBarListener implements Listener {
         if (n.equals("NETHERITE_BLOCK")) return "netherite";
         if (n.equals("LAPIS_BLOCK"))     return "lapis";
         if (n.equals("COAL_BLOCK"))      return "coal";
-        if (n.equals("CHEST") || n.equals("TRAPPED_CHEST") || n.equals("BARREL") || n.equals("HOPPER") || n.equals("DROPPER") || n.equals("DISPENSER")) return "chests";
+        if (n.equals("CHEST") || n.equals("TRAPPED_CHEST")) return "chests";
+        if (n.equals("BARREL"))                             return "barrels";
+        if (n.equals("HOPPER"))                             return "hoppers";
+        if (n.equals("DROPPER") || n.equals("DISPENSER"))  return "dispensers";
         if (n.equals("TNT"))             return "tnt";
         if (n.contains("OBSIDIAN"))      return "obsidian";
         if (n.contains("ICE"))           return "ice";
