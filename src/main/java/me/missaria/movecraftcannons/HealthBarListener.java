@@ -471,28 +471,19 @@ public class HealthBarListener implements Listener {
             }
         } catch (Exception ignored) {}
 
+        String label;
         if (familyCounts.size() > 1) {
-            // Multi-family entry: one bar per family
-            for (Map.Entry<String, Integer> fe : familyCounts.entrySet()) {
-                int famCount = fe.getValue();
-                if (famCount <= 0) continue;
-                double ePct = Math.min(100.0, (double) famCount / maxEntry * 100.0);
-                int eFilled = (int) Math.round(ePct / 20.0);
-                String famLabel = FAMILY_RU.getOrDefault(fe.getKey(), fe.getKey());
-                lines.add("§7" + icon + " " + famLabel + " "
-                        + mc + "§l" + "█".repeat(eFilled)
-                        + "§8§l" + "░".repeat(5 - eFilled)
-                        + " " + mc + String.format("%.0f%%", ePct));
-            }
+            label = String.join("/", familyCounts.keySet().stream()
+                    .map(k -> FAMILY_RU.getOrDefault(k, k)).toList());
         } else {
-            // Single-family entry: one combined bar
-            double ePct = Math.min(100.0, (double) currE / maxEntry * 100.0);
-            int eFilled = (int) Math.round(ePct / 20.0);
-            lines.add("§7" + icon + " " + entryLabel(pilot, entry) + " "
-                    + mc + "§l" + "█".repeat(eFilled)
-                    + "§8§l" + "░".repeat(5 - eFilled)
-                    + " " + mc + String.format("%.0f%%", ePct));
+            label = entryLabel(pilot, entry);
         }
+        double ePct = Math.min(100.0, (double) currE / maxEntry * 100.0);
+        int eFilled = (int) Math.round(ePct / 20.0);
+        lines.add("§7" + icon + " " + label + " "
+                + mc + "§l" + "█".repeat(eFilled)
+                + "§8§l" + "░".repeat(5 - eFilled)
+                + " " + mc + String.format("%.0f%%", ePct));
     }
 
     /** Label for a moveblock/flyblock entry: lang file → RU_NAMES → fallback. */
