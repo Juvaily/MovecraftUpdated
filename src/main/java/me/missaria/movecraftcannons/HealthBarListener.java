@@ -361,6 +361,12 @@ public class HealthBarListener implements Listener {
         int totalOrig = 0, totalCurr = 0;
         for (int i = 0; i < entries.size(); i++) {
             if (origE.length <= i || origE[i] <= 0) continue;
+            boolean isWool = false;
+            try {
+                for (Material m : entries.get(i).getMaterials())
+                    if (m.name().endsWith("_WOOL")) { isWool = true; break; }
+            } catch (Exception ignored) {}
+            if (!isWool) continue;
             totalOrig += origE[i];
             totalCurr += sc.length > 2 + i ? sc[2 + i] : 0;
         }
@@ -404,10 +410,9 @@ public class HealthBarListener implements Listener {
             int currE = sc.length > 2 + i ? sc[2 + i] : 0;
             if (currE <= 0) continue;
             int maxEntry = origE[i];
-            int minEntry = minE.length > i ? minE[i] : 0;
             boolean met = entries.get(i).check(currE, curr);
             String mc = met ? "§a" : "§c";
-            double ePct = entryPct(currE, minEntry, maxEntry);
+            double ePct = Math.min(100.0, (double) currE / maxEntry * 100.0);
             int eFilled = (int) Math.round(ePct / 20.0);
             lines.add("§7⚙ " + entryLabel(pilot, entries.get(i)) + " "
                     + mc + "§l" + "█".repeat(eFilled)
@@ -421,10 +426,9 @@ public class HealthBarListener implements Listener {
             int currE = sc.length > base + i ? sc[base + i] : 0;
             if (currE <= 0) continue;
             int maxEntry = origF[i];
-            int minEntry = minF.length > i ? minF[i] : 0;
             boolean met = fEntries.get(i).check(currE, curr);
             String mc = met ? "§a" : "§c";
-            double ePct = entryPct(currE, minEntry, maxEntry);
+            double ePct = Math.min(100.0, (double) currE / maxEntry * 100.0);
             int eFilled = (int) Math.round(ePct / 20.0);
             lines.add("§7🧱 " + entryLabel(pilot, fEntries.get(i)) + " "
                     + mc + "§l" + "█".repeat(eFilled)
@@ -490,12 +494,6 @@ public class HealthBarListener implements Listener {
 
     private double frac(int curr, int orig) {
         return orig <= 0 ? 1.0 : Math.max(0.0, Math.min(1.0, (double) curr / orig));
-    }
-
-    /** 0% at min blocks, 100% at max blocks, clamped. */
-    private double entryPct(int curr, int min, int max) {
-        if (max <= min) return curr >= max ? 100.0 : 0.0;
-        return Math.max(0.0, Math.min(100.0, (double)(curr - min) / (max - min) * 100.0));
     }
 
     // ── Russian material names ────────────────────────────────────────────────
