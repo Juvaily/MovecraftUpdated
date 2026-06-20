@@ -107,6 +107,8 @@ public class TurretListener implements Listener {
     }
 
     public void rotateTurretFromMenu(Block signBlock, Player player, MovecraftRotation rotation) {
+        if (plugin.isDebug())
+            player.sendMessage(org.bukkit.ChatColor.GRAY + "[turret] rotateTurretFromMenu rot=" + rotation + " block=" + signBlock.getType());
         simulateSignClick(signBlock, player, rotation);
     }
 
@@ -247,12 +249,24 @@ public class TurretListener implements Listener {
                 signBlock, BlockFace.SOUTH,
                 EquipmentSlot.HAND);
         UUID uid = player.getUniqueId();
+        if (plugin.isDebug()) {
+            org.bukkit.ChatColor c = org.bukkit.ChatColor.GRAY;
+            org.bukkit.block.Sign s = null;
+            try { s = (org.bukkit.block.Sign) signBlock.getState(); } catch (Exception ignored) {}
+            String l0 = s != null ? s.getLine(0) : "?";
+            String l1 = s != null ? s.getLine(1) : "?";
+            player.sendMessage(c + "[turret] sim " + action.name()
+                    + " on " + signBlock.getType() + " @ " + signBlock.getX() + "," + signBlock.getY() + "," + signBlock.getZ()
+                    + " L0='" + l0 + "' L1='" + l1 + "'");
+        }
         simulatingRotation.add(uid);
         try {
             org.bukkit.Bukkit.getPluginManager().callEvent(fake);
         } finally {
             simulatingRotation.remove(uid);
         }
+        if (plugin.isDebug())
+            player.sendMessage(org.bukkit.ChatColor.GRAY + "[turret] event cancelled=" + fake.isCancelled());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
