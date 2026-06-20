@@ -276,6 +276,10 @@ public class WasdListener implements Listener {
 
     private String craftName(PlayerCraft craft) {
         try {
+            String n = craft.getName();
+            if (n != null && !n.isBlank()) return n;
+        } catch (Exception ignored) {}
+        try {
             String n = craft.getType().getStringProperty(
                     net.countercraft.movecraft.craft.type.CraftType.NAME);
             if (n != null && !n.isBlank()) return n;
