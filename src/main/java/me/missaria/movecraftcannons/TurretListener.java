@@ -17,6 +17,8 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.plugin.EventException;
+import org.bukkit.plugin.RegisteredListener;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,11 +43,9 @@ public class TurretListener implements Listener {
     );
 
     // Stores sign blocks of found turrets, keyed by pilot UUID
-    private final Map<UUID, List<Block>> turretCache        = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer>     selectedIdx        = new ConcurrentHashMap<>();
-    private final Map<UUID, Long>        lastRotate         = new ConcurrentHashMap<>();
-    // Prevents onInteract from re-catching and cancelling the fake events we fire
-    private final Set<UUID>              simulatingRotation = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, List<Block>> turretCache = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer>     selectedIdx = new ConcurrentHashMap<>();
+    private final Map<UUID, Long>        lastRotate  = new ConcurrentHashMap<>();
 
     // ── Left/right click → simulate sign click (SubcraftRotateSign does the rest) ──
 
@@ -61,8 +61,6 @@ public class TurretListener implements Listener {
         if (craft == null || !craft.getPilotLocked()) return;
 
         UUID uid = player.getUniqueId();
-        // Skip events fired by our own simulateSignClick to let SubcraftRotateSign process them
-        if (simulatingRotation.contains(uid)) return;
         if (!selectedIdx.containsKey(uid)) return;
 
         ItemStack held = event.getItem();
@@ -243,22 +241,26 @@ public class TurretListener implements Listener {
                 ? Action.RIGHT_CLICK_BLOCK
                 : Action.LEFT_CLICK_BLOCK;
         PlayerInteractEvent fake = new PlayerInteractEvent(
-                player, action,
-                player.getInventory().getItemInMainHand(),
-                signBlock, BlockFace.SOUTH,
-                EquipmentSlot.HAND);
-        UUID uid = player.getUniqueId();
-        org.bukkit.block.Sign dbgSign = null;
-        try { dbgSign = (org.bukkit.block.Sign) signBlock.getState(); } catch (Exception ignored) {}
-        String l0 = dbgSign != null ? dbgSign.getLine(0) : "?";
-        String l1 = dbgSign != null ? dbgSign.getLine(1) : "?";
+                player, action, null, signBlock, BlockFace.SOUTH, EquipmentSlot.HAND);
+
+        String l0 = "?", l1 = "?";
+        try { Sign s = (Sign) signBlock.getState(); l0 = s.getLine(0); l1 = s.getLine(1); }
+        catch (Exception ignored) {}
         player.sendMessage("§7[turret] sim " + action.name() + " L0='" + l0 + "' L1='" + l1 + "'");
-        simulatingRotation.add(uid);
-        try {
-            org.bukkit.Bukkit.getPluginManager().callEvent(fake);
-        } finally {
-            simulatingRotation.remove(uid);
+
+        // Movecraft's InteractListener (LOWEST) cancels RIGHT_CLICK_BLOCK when the player is
+        // piloting (for DC movement), causing SubcraftRotateSign (ignoreCancelled=true) to skip
+        // the event. We bypass the event bus entirely and invoke SubcraftRotateSign directly.
+        boolean invoked = false;
+        for (RegisteredListener rl : PlayerInteractEvent.getHandlerList().getRegisteredListeners()) {
+            if ("Movecraft".equals(rl.getPlugin().getName())
+                    && "SubcraftRotateSign".equals(rl.getListener().getClass().getSimpleName())) {
+                try { rl.callEvent(fake); invoked = true; }
+                catch (EventException e) { plugin.getLogger().warning("[turret] SubcraftRotateSign: " + e.getMessage()); }
+                break;
+            }
         }
+        if (!invoked) player.sendMessage("§c[turret] SubcraftRotateSign listener not found");
         player.sendMessage("§7[turret] cancelled=" + fake.isCancelled());
     }
 
