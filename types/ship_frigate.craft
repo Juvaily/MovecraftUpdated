@@ -82,7 +82,7 @@ passthroughBlocks:
     
 canCruise: true
 cruiseSkipBlocks: 2
-cruiseSpeed: 3
+cruiseSpeed: 10
 canFly: false
 sinkPercent: 40.0
 overallSinkPercent: 60.0
@@ -93,7 +93,7 @@ maxHeightLimit: 80
 requireWaterContact: true
 collisionExplosion: 0.0
 onlyMovePlayers: true
-speed: 3
+speed: 8
 tryNudge: false
 moveblocks:
     "#wool":

@@ -81,8 +81,8 @@ passthroughBlocks:
     - sea_pickle
     
 canCruise: true
-cruiseSkipBlocks: 1.0
-cruiseSpeed: 1.0
+cruiseSkipBlocks: 1
+cruiseSpeed: 3
 canFly: false
 sinkPercent: 40.0
 overallSinkPercent: 60.0
@@ -93,7 +93,7 @@ maxHeightLimit: 80
 requireWaterContact: true
 collisionExplosion: 0.0
 onlyMovePlayers: true
-speed: 3
+speed: 4
 tryNudge: false
 moveblocks:
     "#wool":

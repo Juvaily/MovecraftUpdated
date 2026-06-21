@@ -83,7 +83,7 @@ passthroughBlocks:
 
     
 canCruise: true
-cruiseSkipBlocks: 1
+cruiseSkipBlocks: 0
 cruiseSpeed: 3
 canFly: false
 sinkPercent: 40.0
@@ -95,7 +95,7 @@ maxHeightLimit: 80
 requireWaterContact: true
 collisionExplosion: 0.0
 onlyMovePlayers: true
-speed: 4
+speed: 3
 tryNudge: false
 flyblocks:
     ["#planks", "#wooden_slabs", "#logs", "#fences"]:
