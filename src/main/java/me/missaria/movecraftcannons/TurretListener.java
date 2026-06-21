@@ -239,28 +239,58 @@ public class TurretListener implements Listener {
         Action action = rotation == MovecraftRotation.CLOCKWISE
                 ? Action.RIGHT_CLICK_BLOCK
                 : Action.LEFT_CLICK_BLOCK;
-        PlayerInteractEvent fake = new PlayerInteractEvent(
-                player, action, null, signBlock, BlockFace.SOUTH, EquipmentSlot.HAND);
 
-        String l0 = "?", l1 = "?";
-        try { Sign s = (Sign) signBlock.getState(); l0 = s.getLine(0); l1 = s.getLine(1); }
-        catch (Exception ignored) {}
-        player.sendMessage("§7[turret] sim " + action.name() + " L0='" + l0 + "' L1='" + l1 + "'");
+        // SubcraftRotateSign.HEADER = "Subcraft Rotate" (no brackets).
+        // Signs placed via Movecraft convention use "[Subcraft Rotate]" — ChatColor.stripColor()
+        // does not strip brackets, so the header check fails. Temporarily remove brackets.
+        Sign originalState = null;
+        boolean patched = false;
+        try {
+            if (signBlock.getState() instanceof Sign orig) {
+                String raw = orig.getLine(0);
+                String noColor = ChatColor.stripColor(raw);
+                if (noColor != null && noColor.startsWith("[") && noColor.endsWith("]")) {
+                    originalState = orig;
+                    Sign tmp = (Sign) signBlock.getState();
+                    tmp.setLine(0, noColor.substring(1, noColor.length() - 1).trim());
+                    tmp.update(true, false);
+                    patched = true;
+                }
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("[turret] sign patch: " + e.getMessage());
+            patched = false;
+        }
 
-        // Movecraft's InteractListener (LOWEST) cancels RIGHT_CLICK_BLOCK when the player is
-        // piloting (for DC movement), causing SubcraftRotateSign (ignoreCancelled=true) to skip
-        // the event. We bypass the event bus entirely and invoke SubcraftRotateSign directly.
-        boolean invoked = false;
-        for (RegisteredListener rl : PlayerInteractEvent.getHandlerList().getRegisteredListeners()) {
-            if ("Movecraft".equals(rl.getPlugin().getName())
-                    && "SubcraftRotateSign".equals(rl.getListener().getClass().getSimpleName())) {
-                try { rl.callEvent(fake); invoked = true; }
-                catch (Exception e) { plugin.getLogger().warning("[turret] SubcraftRotateSign: " + e.getMessage()); }
-                break;
+        try {
+            PlayerInteractEvent fake = new PlayerInteractEvent(
+                    player, action, null, signBlock, BlockFace.SOUTH, EquipmentSlot.HAND);
+
+            String l0 = "?", l1 = "?";
+            try { Sign s = (Sign) signBlock.getState(); l0 = s.getLine(0); l1 = s.getLine(1); }
+            catch (Exception ignored) {}
+            player.sendMessage("§7[turret] sim " + action.name() + " L0='" + l0 + "' L1='" + l1 + "'");
+
+            // Movecraft's InteractListener (LOWEST) cancels RIGHT_CLICK_BLOCK when the player is
+            // piloting (for DC movement), causing SubcraftRotateSign (ignoreCancelled=true) to skip
+            // the event. We bypass the event bus entirely and invoke SubcraftRotateSign directly.
+            boolean invoked = false;
+            for (RegisteredListener rl : PlayerInteractEvent.getHandlerList().getRegisteredListeners()) {
+                if ("Movecraft".equals(rl.getPlugin().getName())
+                        && "SubcraftRotateSign".equals(rl.getListener().getClass().getSimpleName())) {
+                    try { rl.callEvent(fake); invoked = true; }
+                    catch (Exception e) { plugin.getLogger().warning("[turret] SubcraftRotateSign: " + e.getMessage()); }
+                    break;
+                }
+            }
+            if (!invoked) player.sendMessage("§c[turret] SubcraftRotateSign listener not found");
+            player.sendMessage("§7[turret] cancelled=" + fake.isCancelled());
+        } finally {
+            if (patched && originalState != null) {
+                try { originalState.update(true, false); }
+                catch (Exception ignored) {}
             }
         }
-        if (!invoked) player.sendMessage("§c[turret] SubcraftRotateSign listener not found");
-        player.sendMessage("§7[turret] cancelled=" + fake.isCancelled());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
