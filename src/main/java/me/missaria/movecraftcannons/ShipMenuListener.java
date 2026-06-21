@@ -316,11 +316,11 @@ public class ShipMenuListener implements Listener {
 
     // ── Turret section ────────────────────────────────────────────────────────
     //
-    //  Row 3 cols 3-5 (slots 30-32):  ← / [Все турели toggle] / →
-    //  Slots 33-35:                   Individual select buttons for turrets 3-5
-    //  Row 5 cols 3-8 (slots 48-53):  ← / [Турель 1] / →  |  ← / [Турель 2] / →
+    //  Slots 30-32 only:
+    //   [←] [🎯 selector: none→all→1→2→...→none] [→]
     //
-    //  ← → buttons keep the menu open; turret name buttons select for DC LMB/RMB.
+    //  ← → rotate the currently selected turret(s) (noClose).
+    //  Center cycles through selection states and reopens the menu.
 
     @SuppressWarnings("unchecked")
     private void buildTurretSection(Inventory inv, Consumer<Player>[] actions,
@@ -340,69 +340,60 @@ public class ShipMenuListener implements Listener {
             return;
         }
 
-        // ── Row 3: "All turrets" rotate + toggle ──────────────────────────────
-        boolean allSel = Integer.valueOf(TurretListener.ALL_TURRETS).equals(sel);
+        boolean hasSelection = sel != null;
 
-        setSlot(inv, actions, 30, turretRotBtn(player, false),
-                p -> rotateTurrets(p, turrets, MovecraftRotation.ANTICLOCKWISE));
-        ncs.add(30);
+        // ← rotate (slot 30)
+        setSlot(inv, actions, 30, turretRotBtn(player, false, hasSelection),
+                hasSelection ? p -> rotateTurretsSel(p, turrets, MovecraftRotation.ANTICLOCKWISE) : null);
+        if (hasSelection) ncs.add(30);
 
-        setSlot(inv, actions, 31, turretAllItem(player, turrets.size(), allSel),
-                p -> {
-                    if (allSel) turretListener.deselect(p.getUniqueId());
-                    else        turretListener.selectAll(p.getUniqueId());
-                });
+        // Center: cycling selector (slot 31) — click to advance state
+        setSlot(inv, actions, 31, turretSelectorItem(player, turrets, sel),
+                p -> { cycleSelectionForward(p.getUniqueId(), turrets.size()); openMenu(p, craft); });
 
-        setSlot(inv, actions, 32, turretRotBtn(player, true),
-                p -> rotateTurrets(p, turrets, MovecraftRotation.CLOCKWISE));
-        ncs.add(32);
+        // → rotate (slot 32)
+        setSlot(inv, actions, 32, turretRotBtn(player, true, hasSelection),
+                hasSelection ? p -> rotateTurretsSel(p, turrets, MovecraftRotation.CLOCKWISE) : null);
+        if (hasSelection) ncs.add(32);
+    }
 
-        // ── Slots 33-35: selection-only for turrets 3-5 ──────────────────────
-        int[] extraSlots = {33, 34, 35};
-        for (int i = 2; i < Math.min(turrets.size(), 2 + extraSlots.length); i++) {
-            final int idx = i;
-            boolean oneSel = Integer.valueOf(i).equals(sel);
-            String label = turretListener.getTurretLabel(turrets.get(i));
-            setSlot(inv, actions, extraSlots[i - 2],
-                    turretItem(player, i + 1, label, oneSel, false),
-                    p -> {
-                        if (oneSel) turretListener.deselect(p.getUniqueId());
-                        else        turretListener.selectOne(p.getUniqueId(), idx);
-                    });
-        }
-
-        // ── Row 5: individual turrets 1-2 with rotate buttons ────────────────
-        int[][] turretRowSlots = {{48, 49, 50}, {51, 52, 53}};
-        for (int i = 0; i < Math.min(turrets.size(), 2); i++) {
-            final int idx = i;
-            boolean oneSel = Integer.valueOf(i).equals(sel);
-            String label = turretListener.getTurretLabel(turrets.get(i));
-            Block sign = turrets.get(i);
-            int[] row = turretRowSlots[i];
-
-            setSlot(inv, actions, row[0], turretRotBtn(player, false),
-                    p -> rotateTurrets(p, List.of(sign), MovecraftRotation.ANTICLOCKWISE));
-            ncs.add(row[0]);
-
-            setSlot(inv, actions, row[1], turretItem(player, i + 1, label, oneSel, true),
-                    p -> {
-                        if (oneSel) turretListener.deselect(p.getUniqueId());
-                        else        turretListener.selectOne(p.getUniqueId(), idx);
-                    });
-
-            setSlot(inv, actions, row[2], turretRotBtn(player, true),
-                    p -> rotateTurrets(p, List.of(sign), MovecraftRotation.CLOCKWISE));
-            ncs.add(row[2]);
+    private void cycleSelectionForward(UUID uid, int n) {
+        Integer current = turretListener.getSelectedIdx(uid);
+        if (current == null) {
+            turretListener.selectAll(uid);
+        } else if (current == TurretListener.ALL_TURRETS) {
+            if (n > 0) turretListener.selectOne(uid, 0);
+            else       turretListener.deselect(uid);
+        } else {
+            int next = current + 1;
+            if (next >= n) turretListener.deselect(uid);
+            else           turretListener.selectOne(uid, next);
         }
     }
 
-    private void rotateTurrets(Player player, List<Block> turrets, MovecraftRotation rot) {
+    private void rotateTurretsSel(Player player, List<Block> turrets, MovecraftRotation rot) {
         if (turretListener == null) return;
-        for (Block sign : turrets) turretListener.rotateTurretFromMenu(sign, player, rot);
+        Integer sel = turretListener.getSelectedIdx(player.getUniqueId());
+        if (sel == null) return;
+        if (sel == TurretListener.ALL_TURRETS) {
+            for (Block sign : turrets) turretListener.rotateTurretFromMenu(sign, player, rot);
+        } else if (sel >= 0 && sel < turrets.size()) {
+            turretListener.rotateTurretFromMenu(turrets.get(sel), player, rot);
+        }
     }
 
-    private ItemStack turretRotBtn(Player player, boolean clockwise) {
+    private ItemStack turretRotBtn(Player player, boolean clockwise, boolean enabled) {
         String key = clockwise ? "menu.turret.rot_right" : "menu.turret.rot_left";
+        if (!enabled) {
+            ItemStack is = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+            ItemMeta m = is.getItemMeta();
+            m.displayName(Component.text(Lang.get(key, player))
+                    .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+            m.lore(List.of(Component.text(Lang.get("menu.turret.disabled_rot", player))
+                    .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
+            is.setItemMeta(m);
+            return is;
+        }
         ItemStack is = new ItemStack(clockwise ? Material.SPECTRAL_ARROW : Material.ARROW);
         ItemMeta m = is.getItemMeta();
         m.displayName(Component.text(Lang.get(key, player))
@@ -413,40 +404,40 @@ public class ShipMenuListener implements Listener {
         return is;
     }
 
-    private ItemStack turretAllItem(Player player, int count, boolean selected) {
-        Material mat = selected ? Material.BLAZE_POWDER : Material.COMPASS;
-        NamedTextColor color = selected ? NamedTextColor.GREEN : NamedTextColor.WHITE;
-        String prefix = selected ? "▶ " : "";
-        ItemStack is = new ItemStack(mat);
-        ItemMeta m = is.getItemMeta();
-        m.displayName(Component.text(prefix + Lang.get("menu.turret.all", player))
-                .color(color).decoration(TextDecoration.ITALIC, false));
-        m.lore(List.of(
-                Component.text(Lang.get("menu.turret.count", player, count))
-                        .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false),
-                Component.text(Lang.get(selected ? "menu.turret.all_lore" : "menu.turret.select_lore", player))
-                        .color(selected ? NamedTextColor.GREEN : NamedTextColor.GRAY)
-                        .decoration(TextDecoration.ITALIC, false)
-        ));
-        is.setItemMeta(m);
-        return is;
-    }
-
-    private ItemStack turretItem(Player player, int num, String label, boolean selected, boolean showRotLore) {
-        Material mat = selected ? Material.BLAZE_ROD : Material.STICK;
-        NamedTextColor color = selected ? NamedTextColor.AQUA : NamedTextColor.WHITE;
-        String prefix = selected ? "▶ " : "";
-        ItemStack is = new ItemStack(mat);
-        ItemMeta m = is.getItemMeta();
-        m.displayName(Component.text(prefix + "🎯 " + num + ". " + label)
-                .color(color).decoration(TextDecoration.ITALIC, false));
+    private ItemStack turretSelectorItem(Player player, List<Block> turrets, Integer sel) {
         List<Component> lore = new ArrayList<>();
-        lore.add(Component.text(Lang.get(selected ? "menu.turret.selected_lore" : "menu.turret.select_lore", player))
-                .color(selected ? NamedTextColor.AQUA : NamedTextColor.GRAY)
-                .decoration(TextDecoration.ITALIC, false));
-        if (showRotLore)
-            lore.add(Component.text(Lang.get("menu.turret.rot_hint", player))
-                    .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        lore.add(Component.text(Lang.get("menu.turret.count", player, turrets.size()))
+                .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        lore.add(Component.text(Lang.get("menu.turret.cycle_lore", player))
+                .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+
+        if (sel == null) {
+            ItemStack is = new ItemStack(Material.COMPASS);
+            ItemMeta m = is.getItemMeta();
+            m.displayName(Component.text("🎯 " + Lang.get("menu.turret.no_selection", player))
+                    .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+            m.lore(lore);
+            is.setItemMeta(m);
+            return is;
+        }
+        if (sel == TurretListener.ALL_TURRETS) {
+            lore.add(1, Component.text(Lang.get("menu.turret.all_lore", player))
+                    .color(NamedTextColor.GREEN).decoration(TextDecoration.ITALIC, false));
+            ItemStack is = new ItemStack(Material.BLAZE_POWDER);
+            ItemMeta m = is.getItemMeta();
+            m.displayName(Component.text("🎯 " + Lang.get("menu.turret.all", player))
+                    .color(NamedTextColor.GREEN).decoration(TextDecoration.ITALIC, false));
+            m.lore(lore);
+            is.setItemMeta(m);
+            return is;
+        }
+        String label = turretListener.getTurretLabel(turrets.get(sel));
+        lore.add(1, Component.text(Lang.get("menu.turret.selected_lore", player))
+                .color(NamedTextColor.AQUA).decoration(TextDecoration.ITALIC, false));
+        ItemStack is = new ItemStack(Material.BLAZE_ROD);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text("🎯 " + (sel + 1) + ". " + label)
+                .color(NamedTextColor.AQUA).decoration(TextDecoration.ITALIC, false));
         m.lore(lore);
         is.setItemMeta(m);
         return is;

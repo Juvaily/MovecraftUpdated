@@ -482,10 +482,12 @@ menu.turret.count:         "Турелей: {0}"
 menu.turret.select_lore:   "Натисніть — вибрати для ЛКМ/ПКМ у DC"
 menu.turret.selected_lore: "▶ Керується ЛКМ/ПКМ у DC"
 menu.turret.all_lore:      "▶ Всі обертаються ЛКМ/ПКМ у DC"
+menu.turret.no_selection:  "Не вибрано"
+menu.turret.cycle_lore:    "Натисніть — переключити ціль"
+menu.turret.disabled_rot:  "Спочатку виберіть турель"
 menu.turret.rot_left:      "◀ Повернути вліво"
 menu.turret.rot_right:     "▶ Повернути вправо"
 menu.turret.rot_lore:      "Натисніть — повернути (меню залишається відкритим)"
-menu.turret.rot_hint:      "◀ ▶ — кнопки повороту зліва і справа"
 
 # ── AIM mode ─────────────────────────────────────────────────────────────────
 msg.aim_on:   "🎯 Прицілювання увімкнено ({0} гармат) — ПКМ годинником, щоб вимкнути"

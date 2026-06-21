@@ -216,10 +216,12 @@ menu.turret.count:         "Турелей: {0}"
 menu.turret.select_lore:   "Нажмите — выбрать для ЛКМ/ПКМ в DC"
 menu.turret.selected_lore: "▶ Управляется ЛКМ/ПКМ в DC"
 menu.turret.all_lore:      "▶ Все вращаются ЛКМ/ПКМ в DC"
+menu.turret.no_selection:  "Не выбрано"
+menu.turret.cycle_lore:    "Нажмите — переключить цель"
+menu.turret.disabled_rot:  "Сначала выберите турель"
 menu.turret.rot_left:      "◀ Повернуть влево"
 menu.turret.rot_right:     "▶ Повернуть вправо"
 menu.turret.rot_lore:      "Нажмите — повернуть (меню остаётся открытым)"
-menu.turret.rot_hint:      "◀ ▶ — кнопки поворота слева и справа"
 
 # ── AIM mode ─────────────────────────────────────────────────────────────────
 msg.aim_on:   "🎯 Прицеливание включено ({0} пушек) — ПКМ часами, чтобы выключить"
