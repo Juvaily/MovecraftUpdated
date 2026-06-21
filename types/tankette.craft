@@ -59,6 +59,13 @@ allowHorizontalMovement: true
 allowVerticalMovement: true
 speed: 4.0
 tryNudge: false
+fuelBurnRate: 0.17
+fuelTypes:
+    coal_block: 80.0
+    coal: 8.0
+    charcoal: 8.0
+    stick: 0.5
+    bamboo_planks: 1.5
 sinkPercent: 90.0
 rotateAtMidpoint: false
 useGravity: true

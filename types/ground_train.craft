@@ -123,6 +123,13 @@ canStaticMove: true
 maxStaticMove: 2
 speed: 1.0
 tryNudge: false
+fuelBurnRate: 0.25
+fuelTypes:
+    coal_block: 80.0
+    coal: 8.0
+    charcoal: 8.0
+    stick: 0.5
+    bamboo_planks: 1.5
 sinkPercent: 70.0
 hoverLimit: 1
 rotateAtMidpoint: true
