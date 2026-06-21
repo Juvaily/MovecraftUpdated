@@ -17,7 +17,6 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.plugin.EventException;
 import org.bukkit.plugin.RegisteredListener;
 
 import java.util.ArrayList;
@@ -256,7 +255,7 @@ public class TurretListener implements Listener {
             if ("Movecraft".equals(rl.getPlugin().getName())
                     && "SubcraftRotateSign".equals(rl.getListener().getClass().getSimpleName())) {
                 try { rl.callEvent(fake); invoked = true; }
-                catch (EventException e) { plugin.getLogger().warning("[turret] SubcraftRotateSign: " + e.getMessage()); }
+                catch (Exception e) { plugin.getLogger().warning("[turret] SubcraftRotateSign: " + e.getMessage()); }
                 break;
             }
         }
