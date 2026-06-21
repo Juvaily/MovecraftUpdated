@@ -376,7 +376,18 @@ public class ShipMenuListener implements Listener {
         Integer sel = turretListener.getSelectedIdx(player.getUniqueId());
         if (sel == null) return;
         if (sel == TurretListener.ALL_TURRETS) {
-            for (Block sign : turrets) turretListener.rotateTurretFromMenu(sign, player, rot);
+            // Stagger rotations: SubcraftRotateSign marks the parent craft busy during detection,
+            // so rotating multiple turrets in the same tick causes "parent craft busy" on all
+            // but the first. 20 ticks (1s) gives each turret time to finish detection+rotation.
+            for (int i = 0; i < turrets.size(); i++) {
+                final Block sign = turrets.get(i);
+                if (i == 0) {
+                    turretListener.rotateTurretFromMenu(sign, player, rot);
+                } else {
+                    Bukkit.getScheduler().runTaskLater(plugin,
+                            () -> turretListener.rotateTurretFromMenu(sign, player, rot), i * 20L);
+                }
+            }
         } else if (sel >= 0 && sel < turrets.size()) {
             turretListener.rotateTurretFromMenu(turrets.get(sel), player, rot);
         }
