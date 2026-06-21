@@ -73,12 +73,12 @@ canFly: true
 canCruise: true
 canStaticMove: true
 maxStaticMove: 5
-cruiseSpeed: 5.0
+cruiseSpeed: 6
 cruiseSkipBlocks: 1
 collisionExplosion: 0.0
 allowHorizontalMovement: true
 allowVerticalMovement: true
-speed: 4.0
+speed: 5
 tryNudge: false
 fuelBurnRate: 0.17
 fuelTypes:

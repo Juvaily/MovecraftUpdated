@@ -116,12 +116,14 @@ forbiddenBlocks:
 
 canFly: false
 canCruise: true
+cruiseSpeed: 8
+cruiseSkipBlocks: 2
 collisionExplosion: 0.0
 allowHorizontalMovement: true
 allowVerticalMovement: false
 canStaticMove: true
 maxStaticMove: 2
-speed: 1.0
+speed: 3
 tryNudge: false
 fuelBurnRate: 0.25
 fuelTypes:

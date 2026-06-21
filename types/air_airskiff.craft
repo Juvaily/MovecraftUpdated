@@ -118,8 +118,8 @@ canFly: true
 rotateAtMidpoint: true
 canCruise: true
 canTeleport: true
-cruiseSpeed: 5.0
-cruiseSkipBlocks: 2
+cruiseSpeed: 7
+cruiseSkipBlocks: 1
 maxHeightLimit: 300
 maxHeightAboveGround: 100
 collisionExplosion: 0.0
@@ -132,7 +132,7 @@ smokeOnSink: 1
 keepMovingOnSink: true
 canStaticMove: true
 canTeleport: true
-speed: 2.0
+speed: 5
 tryNudge: false
 sinkPercent: 99.0
 flyblocks:

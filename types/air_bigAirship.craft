@@ -88,9 +88,9 @@ vertCruiseSkipBlocks: 3
 collisionExplosion: 0.0
 detectionMultiplier: 10.0
 underwaterDetectionMultiplier: 1.0
-speed: 2.0
+speed: 3
 cruiseSkipBlocks: 1
-cruiseSpeed: 2.0
+cruiseSpeed: 3
 fuelBurnRate: 0.44
 sinkPercent: 99.0
 overallSinkPercent: 60.0
