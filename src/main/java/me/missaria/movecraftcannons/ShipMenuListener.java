@@ -181,9 +181,8 @@ public class ShipMenuListener implements Listener {
                 p -> rotateCraft(p, craft, MovecraftRotation.ANTICLOCKWISE));
 
         setSlot(inv, actions, 1,
-                isSail && gear == SailGear.NONE ? disabledItem(player, cardinalName(fwd, player))
-                        : relCruiseItem(player, craft, fwd, curDir, cardinalName(fwd, player)),
-                isSail && gear == SailGear.NONE ? null : p -> applyCruise(p, craft, fwd, gear));
+                relCruiseItem(player, craft, fwd, curDir, cardinalName(fwd, player)),
+                p -> applyCruise(p, craft, fwd, gear));
 
         setSlot(inv, actions, 2,
                 item(Material.SPECTRAL_ARROW,
@@ -237,18 +236,16 @@ public class ShipMenuListener implements Listener {
 
         // Row 1: Left / Stop / Right
         setSlot(inv, actions, 9,
-                isSail && gear == SailGear.NONE ? disabledItem(player, cardinalName(lft, player))
-                        : relCruiseItem(player, craft, lft, curDir, cardinalName(lft, player)),
-                isSail && gear == SailGear.NONE ? null : p -> applyLateralCruise(p, craft, lft, gear));
+                relCruiseItem(player, craft, lft, curDir, cardinalName(lft, player)),
+                p -> applyLateralCruise(p, craft, lft, gear));
         setSlot(inv, actions, 10,
                 item(Material.BARRIER,
                         Lang.get("menu.stop.name", player),
                         Lang.get("menu.stop.lore", player)),
                 p -> { stopCruise(craft); reducedDirs.remove(p.getUniqueId()); lateralCruiseDirs.remove(p.getUniqueId()); });
         setSlot(inv, actions, 11,
-                isSail && gear == SailGear.NONE ? disabledItem(player, cardinalName(rgt, player))
-                        : relCruiseItem(player, craft, rgt, curDir, cardinalName(rgt, player)),
-                isSail && gear == SailGear.NONE ? null : p -> applyLateralCruise(p, craft, rgt, gear));
+                relCruiseItem(player, craft, rgt, curDir, cardinalName(rgt, player)),
+                p -> applyLateralCruise(p, craft, rgt, gear));
 
         // Row 2: Up / Backward / Down
         boolean canVertical = allowsVertical(craft);
@@ -264,9 +261,8 @@ public class ShipMenuListener implements Listener {
             setSlot(inv, actions, 20, disabledItem(player, Lang.get("menu.nav.down_disabled", player)), null);
         }
         setSlot(inv, actions, 19,
-                isSail && gear == SailGear.NONE ? disabledItem(player, cardinalName(bwd, player))
-                        : relCruiseItem(player, craft, bwd, curDir, cardinalName(bwd, player)),
-                isSail && gear == SailGear.NONE ? null : p -> applyCruise(p, craft, bwd, gear));
+                relCruiseItem(player, craft, bwd, curDir, cardinalName(bwd, player)),
+                p -> applyCruise(p, craft, bwd, gear));
 
         // Cannon data: types + broadside groupings (player-yaw relative)
         List<Cannon> allCannons = findCannonsOnCraft(craft);
@@ -679,31 +675,30 @@ public class ShipMenuListener implements Listener {
     }
 
     private void applyCruise(Player player, PlayerCraft craft, CruiseDirection dir, SailGear gear) {
-        if (gear == SailGear.NONE) return;
         UUID uid = player.getUniqueId();
         lateralCruiseDirs.remove(uid);
         if (gear == SailGear.FULL) {
             setCruise(player, craft, dir);
         } else {
+            // HALF: half speed + wind; NONE: 1/3 speed, no wind (oars) — both via reducedDirs
             craft.setCruising(false);
             reducedDirs.put(uid, dir);
         }
     }
 
     private void applyLateralCruise(Player player, PlayerCraft craft, CruiseDirection dir, SailGear gear) {
-        if (gear == SailGear.NONE) return;
         UUID uid = player.getUniqueId();
-        if (gear != SailGear.FULL) {
-            // HALF gear: sail manual cruise already runs at half speed via reducedDirs
-            craft.setCruising(false);
-            lateralCruiseDirs.remove(uid);
-            reducedDirs.put(uid, dir);
-        } else {
-            // FULL gear: stop native cruise, run lateral cruise at half base speed
+        if (gear == SailGear.FULL) {
+            // FULL gear: half-speed lateral via dedicated tick
             craft.setCruising(false);
             reducedDirs.remove(uid);
             if (!baseBpsCache.containsKey(uid)) baseBpsCache.put(uid, getBaseBps(craft));
             lateralCruiseDirs.put(uid, dir);
+        } else {
+            // HALF: half speed + wind; NONE: 1/3 speed, no wind (oars) — via reducedDirs
+            craft.setCruising(false);
+            lateralCruiseDirs.remove(uid);
+            reducedDirs.put(uid, dir);
         }
     }
 
@@ -719,11 +714,10 @@ public class ShipMenuListener implements Listener {
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
             if (craft == null) { toRemove.add(uid); continue; }
             SailGear gear = sailGears.getOrDefault(uid, SailGear.HALF);
-            // Defensive: NONE gear must never cruise — clear and skip
-            if (gear == SailGear.NONE) { toRemove.add(uid); craft.setCruising(false); continue; }
             int baseBps = baseBpsCache.getOrDefault(uid, getBaseBps(craft));
             int move    = gear.apply(baseBps);
-            int wind    = windManager.getEffect(entry.getValue());
+            // NONE gear = oars: no wind effect (manual propulsion only)
+            int wind    = gear == SailGear.NONE ? 0 : windManager.getEffect(entry.getValue());
             int total   = Math.max(0, move + wind);
             if (total == 0) continue;
             int[] cv = sailDirVec(entry.getValue());
