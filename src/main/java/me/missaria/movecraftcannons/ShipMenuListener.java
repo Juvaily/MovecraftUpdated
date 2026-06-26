@@ -92,6 +92,7 @@ public class ShipMenuListener implements Listener {
         this.aimListener = aimListener;
         this.healthBarListener = healthBarListener;
         Bukkit.getScheduler().runTaskTimer(plugin, this::tickManualCruise, 20L, 20L);
+        Bukkit.getScheduler().runTaskTimer(plugin, this::enforceAnchorMode, 1L, 1L);
     }
 
     // ── Open menu: right-click BOOK while piloting ─────────────────────────────
@@ -813,6 +814,35 @@ public class ShipMenuListener implements Listener {
         if (sailGears.getOrDefault(pilot.getUniqueId(), SailGear.FULL) != SailGear.NONE) return;
         if (healthBarListener.getSailWoolRawPct(pc) < 30.0) return; // oars mode
         event.setCancelled(true); // anchor mode: block movement
+    }
+
+    // Intercept cruise sign clicks before Movecraft's NORMAL-priority handler sees them.
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = false)
+    public void onCruiseSign(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        Block block = event.getClickedBlock();
+        if (block == null || !(block.getState() instanceof Sign sign)) return;
+        String line0 = stripColor(getLine(sign, 0)).trim();
+        if (!line0.equalsIgnoreCase("Cruise: ON") && !line0.equalsIgnoreCase("Cruise: OFF")) return;
+        Player player = event.getPlayer();
+        PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
+        if (craft == null) return;
+        if (sailGears.getOrDefault(player.getUniqueId(), SailGear.FULL) != SailGear.NONE) return;
+        if (healthBarListener.getSailWoolRawPct(craft) < 30.0) return; // oars mode, allow
+        event.setCancelled(true); // anchor mode: block cruise sign
+    }
+
+    // Every tick: force-stop native cruise for anchor-mode ships (belt-and-suspenders).
+    private void enforceAnchorMode() {
+        for (Map.Entry<UUID, SailGear> entry : sailGears.entrySet()) {
+            if (entry.getValue() != SailGear.NONE) continue;
+            Player p = Bukkit.getPlayer(entry.getKey());
+            if (p == null) continue;
+            PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(p);
+            if (craft == null || !craft.getCruising()) continue;
+            if (healthBarListener.getSailWoolRawPct(craft) < 30.0) continue; // oars mode
+            craft.setCruising(false);
+        }
     }
 
     @EventHandler
