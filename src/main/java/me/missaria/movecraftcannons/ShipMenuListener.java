@@ -160,6 +160,9 @@ public class ShipMenuListener implements Listener {
         boolean isSail = windManager.isSailShip(craft);
         UUID uid = player.getUniqueId();
         SailGear gear = isSail ? sailGears.getOrDefault(uid, SailGear.FULL) : SailGear.FULL;
+        double woolPct = isSail ? healthBarListener.getSailWoolRawPct(craft) : 100.0;
+        // anchorMode: sails intentionally down (enough wool to raise them but chose NONE)
+        boolean anchorMode = isSail && gear == SailGear.NONE && woolPct >= 30.0;
         CruiseDirection curDir;
         if (gear == SailGear.FULL) {
             CruiseDirection lat = lateralCruiseDirs.get(uid);
@@ -181,8 +184,9 @@ public class ShipMenuListener implements Listener {
                 p -> rotateCraft(p, craft, MovecraftRotation.ANTICLOCKWISE));
 
         setSlot(inv, actions, 1,
-                relCruiseItem(player, craft, fwd, curDir, cardinalName(fwd, player)),
-                p -> applyCruise(p, craft, fwd, gear));
+                anchorMode ? disabledItem(player, cardinalName(fwd, player))
+                        : relCruiseItem(player, craft, fwd, curDir, cardinalName(fwd, player)),
+                anchorMode ? null : p -> applyCruise(p, craft, fwd, gear));
 
         setSlot(inv, actions, 2,
                 item(Material.SPECTRAL_ARROW,
@@ -236,16 +240,18 @@ public class ShipMenuListener implements Listener {
 
         // Row 1: Left / Stop / Right
         setSlot(inv, actions, 9,
-                relCruiseItem(player, craft, lft, curDir, cardinalName(lft, player)),
-                p -> applyLateralCruise(p, craft, lft, gear));
+                anchorMode ? disabledItem(player, cardinalName(lft, player))
+                        : relCruiseItem(player, craft, lft, curDir, cardinalName(lft, player)),
+                anchorMode ? null : p -> applyLateralCruise(p, craft, lft, gear));
         setSlot(inv, actions, 10,
                 item(Material.BARRIER,
                         Lang.get("menu.stop.name", player),
                         Lang.get("menu.stop.lore", player)),
                 p -> { stopCruise(craft); reducedDirs.remove(p.getUniqueId()); lateralCruiseDirs.remove(p.getUniqueId()); });
         setSlot(inv, actions, 11,
-                relCruiseItem(player, craft, rgt, curDir, cardinalName(rgt, player)),
-                p -> applyLateralCruise(p, craft, rgt, gear));
+                anchorMode ? disabledItem(player, cardinalName(rgt, player))
+                        : relCruiseItem(player, craft, rgt, curDir, cardinalName(rgt, player)),
+                anchorMode ? null : p -> applyLateralCruise(p, craft, rgt, gear));
 
         // Row 2: Up / Backward / Down
         boolean canVertical = allowsVertical(craft);
@@ -261,8 +267,9 @@ public class ShipMenuListener implements Listener {
             setSlot(inv, actions, 20, disabledItem(player, Lang.get("menu.nav.down_disabled", player)), null);
         }
         setSlot(inv, actions, 19,
-                relCruiseItem(player, craft, bwd, curDir, cardinalName(bwd, player)),
-                p -> applyCruise(p, craft, bwd, gear));
+                anchorMode ? disabledItem(player, cardinalName(bwd, player))
+                        : relCruiseItem(player, craft, bwd, curDir, cardinalName(bwd, player)),
+                anchorMode ? null : p -> applyCruise(p, craft, bwd, gear));
 
         // Cannon data: types + broadside groupings (player-yaw relative)
         List<Cannon> allCannons = findCannonsOnCraft(craft);
@@ -676,11 +683,12 @@ public class ShipMenuListener implements Listener {
 
     private void applyCruise(Player player, PlayerCraft craft, CruiseDirection dir, SailGear gear) {
         UUID uid = player.getUniqueId();
+        if (gear == SailGear.NONE && healthBarListener.getSailWoolRawPct(craft) >= 30.0) return;
         lateralCruiseDirs.remove(uid);
         if (gear == SailGear.FULL) {
             setCruise(player, craft, dir);
         } else {
-            // HALF: half speed + wind; NONE: 1/3 speed, no wind (oars) — both via reducedDirs
+            // HALF: half speed + wind; NONE (oars): 1/3 speed, no wind — both via reducedDirs
             craft.setCruising(false);
             reducedDirs.put(uid, dir);
         }
@@ -688,6 +696,7 @@ public class ShipMenuListener implements Listener {
 
     private void applyLateralCruise(Player player, PlayerCraft craft, CruiseDirection dir, SailGear gear) {
         UUID uid = player.getUniqueId();
+        if (gear == SailGear.NONE && healthBarListener.getSailWoolRawPct(craft) >= 30.0) return;
         if (gear == SailGear.FULL) {
             // FULL gear: half-speed lateral via dedicated tick
             craft.setCruising(false);
@@ -695,7 +704,7 @@ public class ShipMenuListener implements Listener {
             if (!baseBpsCache.containsKey(uid)) baseBpsCache.put(uid, getBaseBps(craft));
             lateralCruiseDirs.put(uid, dir);
         } else {
-            // HALF: half speed + wind; NONE: 1/3 speed, no wind (oars) — via reducedDirs
+            // HALF: half speed + wind; NONE (oars): 1/3 speed, no wind — via reducedDirs
             craft.setCruising(false);
             lateralCruiseDirs.remove(uid);
             reducedDirs.put(uid, dir);
