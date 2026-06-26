@@ -10,6 +10,7 @@ import net.countercraft.movecraft.MovecraftRotation;
 
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
+import net.countercraft.movecraft.events.CraftPreTranslateEvent;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.events.CraftRotateEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -800,6 +801,18 @@ public class ShipMenuListener implements Listener {
         reducedDirs.remove(uid);
         lateralCruiseDirs.remove(uid);
         baseBpsCache.remove(uid);
+    }
+
+    // Block all craft translation when pilot has NONE gear and enough wool to raise sails (anchor mode).
+    // Oars mode (wool < 30%) is allowed through.
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPreTranslate(CraftPreTranslateEvent event) {
+        if (!(event.getCraft() instanceof PlayerCraft pc)) return;
+        Player pilot = pc.getPilot();
+        if (pilot == null) return;
+        if (sailGears.getOrDefault(pilot.getUniqueId(), SailGear.FULL) != SailGear.NONE) return;
+        if (healthBarListener.getSailWoolRawPct(pc) < 30.0) return; // oars mode
+        event.setCancelled(true); // anchor mode: block movement
     }
 
     @EventHandler
