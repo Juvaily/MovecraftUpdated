@@ -710,7 +710,7 @@ public class ShipMenuListener implements Listener {
     // ── Manual cruise tick (HALF / NONE gears) ────────────────────────────────
 
     private void tickManualCruise() {
-        // Sail manual cruise (HALF gear: half speed with wind; NONE gear: blocked at applyCruise)
+        // Sail manual cruise (HALF gear: half speed with wind)
         List<UUID> toRemove = new ArrayList<>();
         for (Map.Entry<UUID, CruiseDirection> entry : reducedDirs.entrySet()) {
             UUID uid = entry.getKey();
@@ -719,6 +719,8 @@ public class ShipMenuListener implements Listener {
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
             if (craft == null) { toRemove.add(uid); continue; }
             SailGear gear = sailGears.getOrDefault(uid, SailGear.HALF);
+            // Defensive: NONE gear must never cruise — clear and skip
+            if (gear == SailGear.NONE) { toRemove.add(uid); craft.setCruising(false); continue; }
             int baseBps = baseBpsCache.getOrDefault(uid, getBaseBps(craft));
             int move    = gear.apply(baseBps);
             int wind    = windManager.getEffect(entry.getValue());
@@ -729,6 +731,15 @@ public class ShipMenuListener implements Listener {
             catch (Exception ignored) {}
         }
         toRemove.forEach(uid -> { reducedDirs.remove(uid); sailGears.remove(uid); });
+
+        // Enforce NONE gear: stop native Movecraft cruise if something else re-enabled it
+        for (Map.Entry<UUID, SailGear> entry : sailGears.entrySet()) {
+            if (entry.getValue() != SailGear.NONE) continue;
+            Player p = Bukkit.getPlayer(entry.getKey());
+            if (p == null) continue;
+            PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(p);
+            if (craft != null && craft.getCruising()) craft.setCruising(false);
+        }
 
         // Lateral cruise (L/R at half base speed for FULL-gear ships, no wind effect)
         List<UUID> toRemoveLat = new ArrayList<>();
