@@ -92,13 +92,14 @@ minHeightLimit: 50
 maxHeightLimit: 80
 requireWaterContact: true
 collisionExplosion: 0.0
+collisionSound: block.wood.break
 onlyMovePlayers: true
-speed: 4
+speed: 2
 tryNudge: false
 moveblocks:
     "#wool":
         - 10.0
-        - 50.0
+        - 30.0
 flyblocks:
     ["#planks", "#wooden_slabs", "#logs", "#fences"]:
         - 30.0

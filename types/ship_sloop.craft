@@ -6,6 +6,7 @@ allowedBlocks:
     - "#wooden_shelves"
     - "#logs"
     - "#beds"
+    - "#leaves"
     - "#wool"
     - "#slabs"
     - "#stairs"
@@ -92,13 +93,14 @@ minHeightLimit: 50
 maxHeightLimit: 80
 requireWaterContact: true
 collisionExplosion: 0.0
+collisionSound: block.wood.break
 onlyMovePlayers: true
-speed: 6
+speed: 3
 tryNudge: false
 moveblocks:
-    "#wool":
+    ["#wool", "#leaves"]:
         - 10.0
-        - 50.0
+        - 30.0
 flyblocks:
     ["#planks", "#wooden_slabs", "#logs", "#fences"]:
         - 30.0

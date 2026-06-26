@@ -49,8 +49,9 @@ public class WasdListener implements Listener {
     private final Map<UUID, Float>    savedWalkSpeed   = new ConcurrentHashMap<>();
     private final Map<UUID, Float>    savedFlySpeed    = new ConcurrentHashMap<>();
 
-    private final java.util.Set<UUID> hudPlayers  = ConcurrentHashMap.newKeySet();
-    private final java.util.Set<UUID> hudHidden   = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<UUID> hudPlayers    = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<UUID> hudHidden     = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<UUID> turningCrafts = ConcurrentHashMap.newKeySet();
 
     private static final long   ROTATE_DEBOUNCE = 600L;
     private static final float  PILOT_SPEED     = 0.005f;
@@ -267,12 +268,49 @@ public class WasdListener implements Listener {
     }
 
     private void rotateCraft(PlayerCraft craft, MovecraftRotation rotation) {
+        UUID craftId = craft.getUUID();
+        if (!turningCrafts.add(craftId)) return;
+
+        Player pilot = craft.getPilot();
+        int[] fwd = arcFwdVec(pilot != null ? pilot.getLocation().getYaw() : 0f);
+        int dist   = arcDist(craft);
+
+        try { craft.translate(fwd[0] * dist, 0, fwd[1] * dist); } catch (Exception ignored) {}
+
+        int[] newFwd = rotation == MovecraftRotation.CLOCKWISE
+                ? new int[]{-fwd[1], fwd[0]} : new int[]{fwd[1], -fwd[0]};
+
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            try {
+                HitBox hb = craft.getHitBox();
+                craft.rotate(rotation, new MovecraftLocation(
+                        (hb.getMinX() + hb.getMaxX()) / 2,
+                        (hb.getMinY() + hb.getMaxY()) / 2,
+                        (hb.getMinZ() + hb.getMaxZ()) / 2));
+            } catch (Exception ignored) {}
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                try { craft.translate(newFwd[0] * dist, 0, newFwd[1] * dist); } catch (Exception ignored) {}
+                turningCrafts.remove(craftId);
+            }, 6L);
+        }, 6L);
+    }
+
+    static int[] arcFwdVec(float rawYaw) {
+        double y = ((rawYaw % 360) + 360) % 360;
+        int snapped = ((int) Math.round(y / 90.0) * 90) % 360;
+        return switch (snapped) {
+            case 90  -> new int[]{-1,  0};
+            case 180 -> new int[]{ 0, -1};
+            case 270 -> new int[]{ 1,  0};
+            default  -> new int[]{ 0,  1};
+        };
+    }
+
+    static int arcDist(PlayerCraft craft) {
         HitBox hb = craft.getHitBox();
-        craft.rotate(rotation, new MovecraftLocation(
-                (hb.getMinX() + hb.getMaxX()) / 2,
-                (hb.getMinY() + hb.getMaxY()) / 2,
-                (hb.getMinZ() + hb.getMaxZ()) / 2
-        ));
+        int span = Math.max(hb.getMaxX() - hb.getMinX(), hb.getMaxZ() - hb.getMinZ());
+        return Math.max(1, Math.min(4, span / 10));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

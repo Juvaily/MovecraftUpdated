@@ -93,6 +93,7 @@ minHeightLimit: 50
 maxHeightLimit: 80
 requireWaterContact: true
 collisionExplosion: 0.0
+collisionSound: block.wood.break
 onlyMovePlayers: true
 speed: 1
 tryNudge: false

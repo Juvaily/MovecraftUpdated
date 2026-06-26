@@ -79,6 +79,8 @@ public class ShipMenuListener implements Listener {
     private final Map<UUID, CruiseDirection>    reducedDirs   = new ConcurrentHashMap<>();
     // Base speed cached while craft is still cruising (before we stop it for reduced gears)
     private final Map<UUID, Integer>            baseBpsCache  = new ConcurrentHashMap<>();
+    // Half-speed lateral (L/R) cruise for FULL-gear ships (separate from sail reducedDirs)
+    private final Map<UUID, CruiseDirection>    lateralCruiseDirs = new ConcurrentHashMap<>();
 
     public void setTurretListener(TurretListener tl) { this.turretListener = tl; }
 
@@ -156,10 +158,16 @@ public class ShipMenuListener implements Listener {
 
         Consumer<Player>[] actions = new Consumer[54];
         boolean isSail = windManager.isSailShip(craft);
-        SailGear gear = isSail ? sailGears.getOrDefault(player.getUniqueId(), SailGear.FULL) : SailGear.FULL;
-        CruiseDirection curDir = gear == SailGear.FULL
-                ? (craft.getCruising() ? craft.getCruiseDirection() : CruiseDirection.NONE)
-                : reducedDirs.getOrDefault(player.getUniqueId(), CruiseDirection.NONE);
+        UUID uid = player.getUniqueId();
+        SailGear gear = isSail ? sailGears.getOrDefault(uid, SailGear.FULL) : SailGear.FULL;
+        CruiseDirection curDir;
+        if (gear == SailGear.FULL) {
+            CruiseDirection lat = lateralCruiseDirs.get(uid);
+            curDir = craft.getCruising() ? craft.getCruiseDirection()
+                    : (lat != null ? lat : CruiseDirection.NONE);
+        } else {
+            curDir = reducedDirs.getOrDefault(uid, CruiseDirection.NONE);
+        }
 
         // Directions relative to player yaw
         CruiseDirection[] rel = relDirs(player.getLocation().getYaw());
@@ -173,8 +181,9 @@ public class ShipMenuListener implements Listener {
                 p -> rotateCraft(p, craft, MovecraftRotation.ANTICLOCKWISE));
 
         setSlot(inv, actions, 1,
-                relCruiseItem(player, craft, fwd, curDir, cardinalName(fwd, player)),
-                p -> applyCruise(p, craft, fwd, gear));
+                isSail && gear == SailGear.NONE ? disabledItem(player, cardinalName(fwd, player))
+                        : relCruiseItem(player, craft, fwd, curDir, cardinalName(fwd, player)),
+                isSail && gear == SailGear.NONE ? null : p -> applyCruise(p, craft, fwd, gear));
 
         setSlot(inv, actions, 2,
                 item(Material.SPECTRAL_ARROW,
@@ -228,16 +237,18 @@ public class ShipMenuListener implements Listener {
 
         // Row 1: Left / Stop / Right
         setSlot(inv, actions, 9,
-                relCruiseItem(player, craft, lft, curDir, cardinalName(lft, player)),
-                p -> applyCruise(p, craft, lft, gear));
+                isSail && gear == SailGear.NONE ? disabledItem(player, cardinalName(lft, player))
+                        : relCruiseItem(player, craft, lft, curDir, cardinalName(lft, player)),
+                isSail && gear == SailGear.NONE ? null : p -> applyLateralCruise(p, craft, lft, gear));
         setSlot(inv, actions, 10,
                 item(Material.BARRIER,
                         Lang.get("menu.stop.name", player),
                         Lang.get("menu.stop.lore", player)),
-                p -> { stopCruise(craft); reducedDirs.remove(p.getUniqueId()); });
+                p -> { stopCruise(craft); reducedDirs.remove(p.getUniqueId()); lateralCruiseDirs.remove(p.getUniqueId()); });
         setSlot(inv, actions, 11,
-                relCruiseItem(player, craft, rgt, curDir, cardinalName(rgt, player)),
-                p -> applyCruise(p, craft, rgt, gear));
+                isSail && gear == SailGear.NONE ? disabledItem(player, cardinalName(rgt, player))
+                        : relCruiseItem(player, craft, rgt, curDir, cardinalName(rgt, player)),
+                isSail && gear == SailGear.NONE ? null : p -> applyLateralCruise(p, craft, rgt, gear));
 
         // Row 2: Up / Backward / Down
         boolean canVertical = allowsVertical(craft);
@@ -253,8 +264,9 @@ public class ShipMenuListener implements Listener {
             setSlot(inv, actions, 20, disabledItem(player, Lang.get("menu.nav.down_disabled", player)), null);
         }
         setSlot(inv, actions, 19,
-                relCruiseItem(player, craft, bwd, curDir, cardinalName(bwd, player)),
-                p -> applyCruise(p, craft, bwd, gear));
+                isSail && gear == SailGear.NONE ? disabledItem(player, cardinalName(bwd, player))
+                        : relCruiseItem(player, craft, bwd, curDir, cardinalName(bwd, player)),
+                isSail && gear == SailGear.NONE ? null : p -> applyCruise(p, craft, bwd, gear));
 
         // Cannon data: types + broadside groupings (player-yaw relative)
         List<Cannon> allCannons = findCannonsOnCraft(craft);
@@ -643,14 +655,22 @@ public class ShipMenuListener implements Listener {
         UUID uid = player.getUniqueId();
         SailGear prev = sailGears.getOrDefault(uid, SailGear.FULL);
         sailGears.put(uid, gear);
-        if (gear == SailGear.FULL) {
+        if (gear == SailGear.NONE) {
+            // Sails fully down: stop all movement
+            craft.setCruising(false);
+            reducedDirs.remove(uid);
+            lateralCruiseDirs.remove(uid);
+            baseBpsCache.remove(uid);
+        } else if (gear == SailGear.FULL) {
             baseBpsCache.remove(uid);
             CruiseDirection dir = reducedDirs.remove(uid);
             if (dir != null) { craft.setCruiseDirection(dir); craft.setCruising(true); }
         } else if (prev == SailGear.FULL) {
             // Cache speed BEFORE stopping cruise so getSpeed() still returns correct value
             baseBpsCache.put(uid, getBaseBps(craft));
-            CruiseDirection cur = craft.getCruising() ? craft.getCruiseDirection() : null;
+            // Carry over current direction (native cruise or lateral cruise)
+            CruiseDirection cur = craft.getCruising() ? craft.getCruiseDirection()
+                    : lateralCruiseDirs.remove(uid);
             craft.setCruising(false);
             if (cur != null && cur != CruiseDirection.NONE
                     && cur != CruiseDirection.UP && cur != CruiseDirection.DOWN)
@@ -659,17 +679,38 @@ public class ShipMenuListener implements Listener {
     }
 
     private void applyCruise(Player player, PlayerCraft craft, CruiseDirection dir, SailGear gear) {
+        if (gear == SailGear.NONE) return;
+        UUID uid = player.getUniqueId();
+        lateralCruiseDirs.remove(uid);
         if (gear == SailGear.FULL) {
             setCruise(player, craft, dir);
         } else {
             craft.setCruising(false);
-            reducedDirs.put(player.getUniqueId(), dir);
+            reducedDirs.put(uid, dir);
+        }
+    }
+
+    private void applyLateralCruise(Player player, PlayerCraft craft, CruiseDirection dir, SailGear gear) {
+        if (gear == SailGear.NONE) return;
+        UUID uid = player.getUniqueId();
+        if (gear != SailGear.FULL) {
+            // HALF gear: sail manual cruise already runs at half speed via reducedDirs
+            craft.setCruising(false);
+            lateralCruiseDirs.remove(uid);
+            reducedDirs.put(uid, dir);
+        } else {
+            // FULL gear: stop native cruise, run lateral cruise at half base speed
+            craft.setCruising(false);
+            reducedDirs.remove(uid);
+            if (!baseBpsCache.containsKey(uid)) baseBpsCache.put(uid, getBaseBps(craft));
+            lateralCruiseDirs.put(uid, dir);
         }
     }
 
     // ── Manual cruise tick (HALF / NONE gears) ────────────────────────────────
 
     private void tickManualCruise() {
+        // Sail manual cruise (HALF gear: half speed with wind; NONE gear: blocked at applyCruise)
         List<UUID> toRemove = new ArrayList<>();
         for (Map.Entry<UUID, CruiseDirection> entry : reducedDirs.entrySet()) {
             UUID uid = entry.getKey();
@@ -688,6 +729,25 @@ public class ShipMenuListener implements Listener {
             catch (Exception ignored) {}
         }
         toRemove.forEach(uid -> { reducedDirs.remove(uid); sailGears.remove(uid); });
+
+        // Lateral cruise (L/R at half base speed for FULL-gear ships, no wind effect)
+        List<UUID> toRemoveLat = new ArrayList<>();
+        for (Map.Entry<UUID, CruiseDirection> entry : lateralCruiseDirs.entrySet()) {
+            UUID uid = entry.getKey();
+            Player player = Bukkit.getPlayer(uid);
+            if (player == null) { toRemoveLat.add(uid); continue; }
+            PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
+            if (craft == null) { toRemoveLat.add(uid); continue; }
+            int baseBps = baseBpsCache.getOrDefault(uid, getBaseBps(craft));
+            int move    = Math.max(1, baseBps / 2);
+            int[] cv    = sailDirVec(entry.getValue());
+            try { craft.translate(cv[0] * move, 0, cv[1] * move); }
+            catch (Exception ignored) {}
+        }
+        toRemoveLat.forEach(uid -> {
+            lateralCruiseDirs.remove(uid);
+            if (!reducedDirs.containsKey(uid)) baseBpsCache.remove(uid);
+        });
     }
 
     private int getBaseBps(PlayerCraft craft) {
@@ -724,6 +784,7 @@ public class ShipMenuListener implements Listener {
         UUID uid = pilot.getUniqueId();
         sailGears.remove(uid);
         reducedDirs.remove(uid);
+        lateralCruiseDirs.remove(uid);
         baseBpsCache.remove(uid);
     }
 
@@ -732,6 +793,7 @@ public class ShipMenuListener implements Listener {
         UUID uid = event.getPlayer().getUniqueId();
         sailGears.remove(uid);
         reducedDirs.remove(uid);
+        lateralCruiseDirs.remove(uid);
         baseBpsCache.remove(uid);
     }
 
@@ -852,12 +914,27 @@ public class ShipMenuListener implements Listener {
     }
 
     private void rotateCraft(Player player, PlayerCraft craft, MovecraftRotation rotation) {
-        HitBox hb = craft.getHitBox();
-        craft.rotate(rotation, new MovecraftLocation(
-                (hb.getMinX() + hb.getMaxX()) / 2,
-                (hb.getMinY() + hb.getMaxY()) / 2,
-                (hb.getMinZ() + hb.getMaxZ()) / 2
-        ));
+        int[] fwd  = WasdListener.arcFwdVec(player.getLocation().getYaw());
+        int dist   = WasdListener.arcDist(craft);
+
+        try { craft.translate(fwd[0] * dist, 0, fwd[1] * dist); } catch (Exception ignored) {}
+
+        int[] newFwd = rotation == MovecraftRotation.CLOCKWISE
+                ? new int[]{-fwd[1], fwd[0]} : new int[]{fwd[1], -fwd[0]};
+
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            try {
+                HitBox hb = craft.getHitBox();
+                craft.rotate(rotation, new MovecraftLocation(
+                        (hb.getMinX() + hb.getMaxX()) / 2,
+                        (hb.getMinY() + hb.getMaxY()) / 2,
+                        (hb.getMinZ() + hb.getMaxZ()) / 2));
+            } catch (Exception ignored) {}
+
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                try { craft.translate(newFwd[0] * dist, 0, newFwd[1] * dist); } catch (Exception ignored) {}
+            }, 6L);
+        }, 6L);
     }
 
     private void doRelease(Player player, PlayerCraft craft, Block releaseSign) {
@@ -1275,7 +1352,7 @@ public class ShipMenuListener implements Listener {
     }
 
     private ItemStack relCruiseItem(Player player, PlayerCraft craft, CruiseDirection dir, CruiseDirection active, String relLabel) {
-        boolean on = craft.getCruising() && active == dir;
+        boolean on = active == dir && active != CruiseDirection.NONE;
         Material mat = switch (dir) {
             case UP   -> Material.FEATHER;
             case DOWN -> Material.POINTED_DRIPSTONE;
