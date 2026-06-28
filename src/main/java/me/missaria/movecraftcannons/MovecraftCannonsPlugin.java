@@ -61,11 +61,11 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         }
         if (command.getName().equalsIgnoreCase("windroll")) {
             if (!sender.hasPermission("movecraftcannons.admin.wind")) {
-                sender.sendMessage("§cНет доступа.");
+                sender.sendMessage(Lang.get("msg.no_permission"));
                 return true;
             }
             windManager.randomize();
-            sender.sendMessage("§aВетер изменён.");
+            sender.sendMessage(Lang.get("msg.wind_randomized"));
             return true;
         }
         if (command.getName().equalsIgnoreCase("windmute")) {

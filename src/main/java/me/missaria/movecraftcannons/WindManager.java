@@ -95,7 +95,7 @@ public class WindManager {
     /**
      * Blocks/sec to add along cruise direction.
      * dot=1 tailwind, dot=-1 headwind, dot=0 crosswind.
-     * calm: -2 always; weak: cross+1; strong: tail+4 cross+2; storm: tail+6 head-6 cross+3
+     * calm: -2 always; weak: head-1 cross+1; strong: tail+4 cross+2; storm: tail+6 head-6 cross+3
      */
     private int computeEffect(int strength, CruiseDirection cruiseDir) {
         if (strength == 0) return -2;
@@ -103,7 +103,7 @@ public class WindManager {
         int[] cv = dirVec(cruiseDir);
         int dot = wv[0] * cv[0] + wv[1] * cv[1];
         return switch (strength) {
-            case 1 -> dot == 0 ? 1 : 0;
+            case 1 -> dot == -1 ? -1 : dot == 0 ? 1 : 0;
             case 2 -> dot == 1 ? 4 : dot == 0 ? 2 : -2;
             case 3 -> dot == 1 ? 6 : dot == -1 ? -6 : 3;
             default -> 0;
@@ -184,7 +184,7 @@ public class WindManager {
     public String getStrengthDisplay() {
         int s = getStrength();
         String name = colorPrefix(s) + Lang.get("wind.strength." + s);
-        if (s >= 2) name += " §7" + Lang.get("wind.dir." + direction.name().toLowerCase());
+        if (s >= 1) name += " §7" + Lang.get("wind.dir." + direction.name().toLowerCase());
         return name;
     }
 
@@ -192,7 +192,7 @@ public class WindManager {
     public String getStrengthDisplay(Player player) {
         int s = getStrength();
         String name = colorPrefix(s) + Lang.get("wind.strength." + s, player);
-        if (s >= 2) name += " " + direction.arrow() + Lang.get("wind.dir." + direction.name().toLowerCase(), player);
+        if (s >= 1) name += " " + direction.arrow() + Lang.get("wind.dir." + direction.name().toLowerCase(), player);
         return name;
     }
 

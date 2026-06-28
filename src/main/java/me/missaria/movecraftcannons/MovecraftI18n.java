@@ -146,6 +146,57 @@ public class MovecraftI18n implements Listener {
         e("Gear of craft changed.",
           "Передача переключена.",
           "Передачу змінено.");
+        e("Gearshift is disabled for this craft type",
+          "Переключение передач недоступно для этого типа.",
+          "Перемикання передач недоступне для цього типу.");
+        e("Invalid Coordinates",
+          "Неверные координаты.",
+          "Невірні координати.");
+        e("Insufficient Permissions",
+          "Недостаточно прав.",
+          "Недостатньо прав.");
+        e("Craft must be part of another craft",
+          "Транспорт должен быть частью другого транспорта.",
+          "Транспорт має бути частиною іншого транспорту.");
+
+        // Release
+        e("You do not have a craft to release!",
+          "У вас нет транспорта для освобождения!",
+          "У вас немає транспорту для звільнення!");
+        e("WARNING! There are blocks near your craft that may merge with the craft.",
+          "ВНИМАНИЕ! Рядом с транспортом есть блоки, которые могут слиться с ним.",
+          "УВАГА! Поруч з транспортом є блоки, які можуть злитися з ним.");
+
+        // ManOverboard
+        e("No valid craft to ManOverboard to.",
+          "Нет подходящего транспорта.",
+          "Немає підходящого транспорту.");
+        e("Distance to craft is too far.",
+          "Расстояние до транспорта слишком велико.",
+          "Відстань до транспорту занадто велика.");
+        e("You waited too long.",
+          "Вы ждали слишком долго.",
+          "Ви чекали надто довго.");
+        e("Can't teleport to a disabled craft.",
+          "Нельзя телепортироваться на отключённый транспорт.",
+          "Неможливо телепортуватися на вимкнений транспорт.");
+
+        // Remote Sign
+        e("Remote Signs cannot be blank!",
+          "Знаки дист. управления не могут быть пустыми!",
+          "Знаки дист. керування не можуть бути порожніми!");
+        e("Remote Sign must be a part of a piloted craft!",
+          "Знак дист. управления должен быть частью пилотируемого транспорта!",
+          "Знак дист. керування має бути частиною пілотованого транспорту!");
+        e("Remote Signs not allowed on this craft!",
+          "Знаки дист. управления не разрешены на этом транспорте!",
+          "Знаки дист. керування не дозволені на цьому транспорті!");
+        e("Could not find target sign!",
+          "Не удалось найти целевой знак!",
+          "Не вдалося знайти цільовий знак!");
+        e("Remote Sign cannot remote another Remote Sign!",
+          "Знак дист. управления не может управлять другим!",
+          "Знак дист. керування не може керувати іншим!");
 
         // Prefix matches (messages with format args — translate prefix only)
         p("Detection Failed! The craft was too small.",
@@ -160,6 +211,12 @@ public class MovecraftI18n implements Listener {
         p("This craft cannot move over",
           "Транспорт не может проехать над этим блоком.",
           "Транспорт не може проїхати над цим блоком.");
+        p("The farthest extent now faces",
+          "Нос теперь смотрит на",
+          "Ніс тепер дивиться на");
+        p("Warning: Forbidden remote sign(s) found",
+          "Предупреждение: обнаружены запрещённые знаки:",
+          "Попередження: знайдено заборонені знаки:");
     }
 
     private static void e(String en, String ru, String uk) { EXACT.add(new String[]{en, ru, uk}); }
