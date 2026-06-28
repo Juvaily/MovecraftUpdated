@@ -1,30 +1,35 @@
 package me.missaria.movecraftcannons;
 
-import io.papermc.paper.event.player.SystemMessageEvent;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Intercepts Movecraft's English system messages and replaces them with
- * per-player translations based on the player's Minecraft client locale.
+ * Per-player Movecraft message translation via Netty packet interception.
+ * Intercepts ClientboundSystemChatPacket, checks against known Movecraft
+ * English strings, replaces with RU or UK based on player's client locale.
  */
 public class MovecraftI18n implements Listener {
 
-    // [ru, uk] indexed by lang index: ru=0, uk=1
+    private static final String HANDLER = "movecraft_i18n";
     private static final int RU = 0, UK = 1;
 
-    // Exact-match table: english → [ru, uk]
-    private static final List<String[]> EXACT = new ArrayList<>();
-    // Prefix-match table (for messages with format args): [en_prefix, ru, uk]
+    private static final List<String[]> EXACT  = new ArrayList<>();
     private static final List<String[]> PREFIX = new ArrayList<>();
 
     static {
@@ -39,11 +44,11 @@ public class MovecraftI18n implements Listener {
           "Этот транспорт уже управляется!",
           "Цей транспорт вже керується!");
         e("Detection Failed! Forbidden block was found on the craft.",
-          "Ошибка запуска! На транспорте запрещённый блок.",
-          "Помилка запуску! На транспорті заборонений блок.");
+          "Ошибка запуска! Запрещённый блок на транспорте.",
+          "Помилка запуску! Заборонений блок на транспорті.");
         e("Detection Failed! Forbidden sign string was found on the craft.",
-          "Ошибка запуска! На транспорте запрещённая строка знака.",
-          "Помилка запуску! На транспорті заборонений рядок знаку.");
+          "Ошибка запуска! Запрещённая строка знака на транспорте.",
+          "Помилка запуску! Заборонений рядок знаку на транспорті.");
         e("Detection failed: Water contact required but not found",
           "Ошибка запуска: требуется контакт с водой.",
           "Помилка запуску: потрібен контакт з водою.");
@@ -66,7 +71,7 @@ public class MovecraftI18n implements Listener {
           "Родительский транспорт занят.",
           "Батьківський транспорт зайнятий.");
 
-        // Movement
+        // Movement failures
         e("Craft Is Disabled!",
           "Транспорт отключён!",
           "Транспорт вимкнено!");
@@ -142,14 +147,14 @@ public class MovecraftI18n implements Listener {
           "Передача переключена.",
           "Передачу змінено.");
 
-        // --- Prefix matches (messages with format specifiers) ---
+        // Prefix matches (messages with format args — translate prefix only)
         p("Detection Failed! The craft was too small.",
           "Ошибка запуска! Транспорт слишком мал.",
           "Помилка запуску! Транспорт задто малий.");
         p("Detection Failed! The craft was too large.",
           "Ошибка запуска! Транспорт слишком велик.",
           "Помилка запуску! Транспорт задто великий.");
-        p("Teleportation cooldown is active. You need to wait",
+        p("Teleportation cooldown is active.",
           "Перезарядка телепортации активна.",
           "Перезарядка телепортації активна.");
         p("This craft cannot move over",
@@ -157,32 +162,102 @@ public class MovecraftI18n implements Listener {
           "Транспорт не може проїхати над цим блоком.");
     }
 
-    private static void e(String en, String ru, String uk) {
-        EXACT.add(new String[]{ en, ru, uk });
-    }
+    private static void e(String en, String ru, String uk) { EXACT.add(new String[]{en, ru, uk}); }
+    private static void p(String pf, String ru, String uk) { PREFIX.add(new String[]{pf, ru, uk}); }
 
-    private static void p(String prefix, String ru, String uk) {
-        PREFIX.add(new String[]{ prefix, ru, uk });
-    }
+    // ── Per-player locale cache ───────────────────────────────────────────────
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onSystemMessage(SystemMessageEvent event) {
-        String plain = PlainTextComponentSerializer.plainText().serialize(event.message());
-        String[] langs = match(plain);
-        if (langs == null) return;
+    private final Map<UUID, String> locales = new ConcurrentHashMap<>();
 
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        String locale = Lang.langOf(player);
-        String translated = "uk".equals(locale) ? langs[UK] : langs[RU];
-        event.message(Component.text(translated));
+        locales.put(player.getUniqueId(), Lang.langOf(player));
+        inject(player);
     }
 
-    private static String[] match(String plain) {
-        for (String[] row : EXACT) {
-            if (plain.equals(row[0])) return new String[]{ row[1], row[2] };
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        locales.remove(player.getUniqueId());
+        try {
+            Channel ch = getChannel(player);
+            if (ch.pipeline().get(HANDLER) != null) ch.pipeline().remove(HANDLER);
+        } catch (Exception ignored) {}
+    }
+
+    // ── Netty injection ───────────────────────────────────────────────────────
+
+    private void inject(Player player) {
+        try {
+            Channel ch = getChannel(player);
+            if (ch.pipeline().get(HANDLER) != null) return;
+            UUID uid = player.getUniqueId();
+            ch.pipeline().addBefore("packet_handler", HANDLER, new ChannelDuplexHandler() {
+                @Override
+                public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+                    super.write(ctx, tryReplace(msg, locales.getOrDefault(uid, "ru")), promise);
+                }
+            });
+        } catch (Exception ignored) {}
+    }
+
+    // ── Packet replacement ────────────────────────────────────────────────────
+
+    static Object tryReplace(Object pkt, String lang) {
+        if (!pkt.getClass().getSimpleName().equals("ClientboundSystemChatPacket")) return pkt;
+        try {
+            Field cf = findField(pkt.getClass(), "content");
+            if (cf == null) return pkt;
+            Object nmsComp = cf.get(pkt);
+
+            // Component.getString() returns full plain text
+            String plain = (String) nmsComp.getClass().getMethod("getString").invoke(nmsComp);
+
+            String[] tr = match(plain);
+            if (tr == null) return pkt;
+            String text = "uk".equals(lang) ? tr[UK] : tr[RU];
+
+            // net.minecraft.network.chat.Component.literal(text)
+            Class<?> compCls = Class.forName("net.minecraft.network.chat.Component");
+            Object newNms = compCls.getMethod("literal", String.class).invoke(null, text);
+
+            Field of = findField(pkt.getClass(), "overlay");
+            if (of == null) return pkt;
+
+            Constructor<?> ctor = pkt.getClass().getDeclaredConstructor(compCls, boolean.class);
+            ctor.setAccessible(true);
+            return ctor.newInstance(newNms, of.get(pkt));
+        } catch (Exception e) {
+            return pkt;
         }
-        for (String[] row : PREFIX) {
-            if (plain.startsWith(row[0])) return new String[]{ row[1], row[2] };
+    }
+
+    static String[] match(String plain) {
+        for (String[] r : EXACT)  if (plain.equals(r[0]))      return new String[]{r[1], r[2]};
+        for (String[] r : PREFIX) if (plain.startsWith(r[0]))  return new String[]{r[1], r[2]};
+        return null;
+    }
+
+    // ── Reflection helpers ────────────────────────────────────────────────────
+
+    private static Channel getChannel(Player p) throws Exception {
+        Object handle = p.getClass().getMethod("getHandle").invoke(p);
+        Field f1 = findField(handle.getClass(), "connection");
+        Object conn1 = f1.get(handle);
+        Field f2 = findField(conn1.getClass(), "connection");
+        Object conn2 = f2.get(conn1);
+        Field f3 = findField(conn2.getClass(), "channel");
+        return (Channel) f3.get(conn2);
+    }
+
+    private static Field findField(Class<?> c, String name) {
+        for (; c != null; c = c.getSuperclass()) {
+            try {
+                Field f = c.getDeclaredField(name);
+                f.setAccessible(true);
+                return f;
+            } catch (NoSuchFieldException ignored) {}
         }
         return null;
     }
