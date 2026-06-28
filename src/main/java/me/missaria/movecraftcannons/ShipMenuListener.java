@@ -1051,13 +1051,23 @@ public class ShipMenuListener implements Listener {
         return c != null ? c.getCannonsAPI() : null;
     }
 
-    /** Collect all InventoryHolder blocks (chests, barrels…) in the craft's hitbox. */
+    /** Collect all InventoryHolder blocks within the craft's bounding box.
+     *  Uses the bounding box (not just the hitbox) so chests outside ALLOWED_BLOCKS are included. */
     private List<org.bukkit.inventory.Inventory> findShipChests(PlayerCraft craft) {
         List<org.bukkit.inventory.Inventory> result = new ArrayList<>();
+        HitBox box = craft.getHitBox();
         World world = craft.getWorld();
-        for (MovecraftLocation loc : craft.getHitBox()) {
-            Block b = world.getBlockAt(loc.getX(), loc.getY(), loc.getZ());
-            if (b.getState() instanceof InventoryHolder h) result.add(h.getInventory());
+        java.util.Set<org.bukkit.inventory.Inventory> seen = new java.util.HashSet<>();
+        for (int x = box.getMinX(); x <= box.getMaxX(); x++) {
+            for (int y = box.getMinY(); y <= box.getMaxY(); y++) {
+                for (int z = box.getMinZ(); z <= box.getMaxZ(); z++) {
+                    Block b = world.getBlockAt(x, y, z);
+                    if (b.getState() instanceof InventoryHolder h) {
+                        org.bukkit.inventory.Inventory inv = h.getInventory();
+                        if (seen.add(inv)) result.add(inv); // dedup double-chests
+                    }
+                }
+            }
         }
         return result;
     }

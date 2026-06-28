@@ -160,7 +160,7 @@ public class AimListener implements Listener {
                 try {
                     org.bukkit.util.Vector aimVec = c.getAimingVector();
                     if (aimVec != null && aimVec.length() > 0.01)
-                        allPoints.addAll(drawTrajectory(player, c, aimVec.normalize(), color));
+                        allPoints.addAll(drawTrajectory(player, c, aimVec.normalize(), color, cannonCenter(c)));
                 } catch (Exception ignored) {}
             }
             sentTrajectory.put(uid, allPoints);
@@ -185,8 +185,7 @@ public class AimListener implements Listener {
 
     private List<Location> drawTrajectory(Player player, Cannon cannon,
                                           org.bukkit.util.Vector direction,
-                                          Material trailMat) {
-        Location start = muzzleLocation(cannon);
+                                          Material trailMat, Location start) {
         if (start == null) return List.of();
         World world = start.getWorld();
         if (world == null) return List.of();
@@ -269,15 +268,11 @@ public class AimListener implements Listener {
         catch (Exception e) { return null; }
     }
 
-    private Location muzzleLocation(Cannon cannon) {
-        try {
-            Location loc = cannon.getCannonDesign().getMuzzle(cannon);
-            if (loc != null) return loc;
-        } catch (Exception ignored) {}
+    private Location cannonCenter(Cannon cannon) {
         try {
             var off = cannon.getCannonPosition().getOffset();
             World world = cannon.getWorldBukkit();
-            return new Location(world, off.getX() + 0.5, off.getY() + 1.5, off.getZ() + 0.5);
+            return new Location(world, off.getX() + 0.5, off.getY() + 0.5, off.getZ() + 0.5);
         } catch (Exception ignored) {}
         return null;
     }
