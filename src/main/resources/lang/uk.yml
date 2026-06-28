@@ -123,9 +123,10 @@ menu.sail.full_lore:   "Нормальна швидкість"
 menu.sail.half:        "Пів вітрила"
 menu.sail.half_lore:   "Швидкість ÷ 2"
 menu.sail.none:        "Прибрати вітрила"
-menu.sail.none_lore:   "Швидкість ÷ 3"
+menu.sail.none_lore:   "Лише ручне керування (WASD)"
 menu.sail.locked_lore: "Недостатньо вітрил"
 msg.sail_locked:       "§cНедостатньо вітрил для цього режиму."
+msg.sail_cruise_blocked: "§eВітрила опущені — крейсерський режим недоступний. Використовуйте DC режим (WASD)."
 
 # ── Health bar family names ───────────────────────────────────────────────────
 health.family.planks:        "Дошки"

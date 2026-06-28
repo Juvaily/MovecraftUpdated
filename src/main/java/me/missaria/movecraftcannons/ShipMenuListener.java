@@ -10,7 +10,7 @@ import net.countercraft.movecraft.MovecraftRotation;
 
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
-import net.countercraft.movecraft.events.CraftPreTranslateEvent;
+
 import net.countercraft.movecraft.events.CraftReleaseEvent;
 import net.countercraft.movecraft.events.CraftRotateEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -685,7 +685,10 @@ public class ShipMenuListener implements Listener {
 
     private void applyCruise(Player player, PlayerCraft craft, CruiseDirection dir, SailGear gear) {
         UUID uid = player.getUniqueId();
-        if (gear == SailGear.NONE && healthBarListener.getSailWoolRawPct(craft) >= 30.0) return;
+        if (gear == SailGear.NONE) {
+            player.sendMessage(Lang.msg("msg.sail_cruise_blocked", player, NamedTextColor.YELLOW));
+            return;
+        }
         lateralCruiseDirs.remove(uid);
         if (gear == SailGear.FULL) {
             setCruise(player, craft, dir);
@@ -698,7 +701,10 @@ public class ShipMenuListener implements Listener {
 
     private void applyLateralCruise(Player player, PlayerCraft craft, CruiseDirection dir, SailGear gear) {
         UUID uid = player.getUniqueId();
-        if (gear == SailGear.NONE && healthBarListener.getSailWoolRawPct(craft) >= 30.0) return;
+        if (gear == SailGear.NONE) {
+            player.sendMessage(Lang.msg("msg.sail_cruise_blocked", player, NamedTextColor.YELLOW));
+            return;
+        }
         if (gear == SailGear.FULL) {
             // FULL gear: half-speed lateral via dedicated tick
             craft.setCruising(false);
@@ -806,18 +812,6 @@ public class ShipMenuListener implements Listener {
         baseBpsCache.remove(uid);
     }
 
-    // Block all craft translation when pilot has NONE gear and enough wool to raise sails (anchor mode).
-    // Oars mode (wool < 30%) is allowed through.
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onPreTranslate(CraftPreTranslateEvent event) {
-        if (!(event.getCraft() instanceof PlayerCraft pc)) return;
-        Player pilot = pc.getPilot();
-        if (pilot == null) return;
-        if (sailGears.getOrDefault(pilot.getUniqueId(), SailGear.FULL) != SailGear.NONE) return;
-        if (healthBarListener.getSailWoolRawPct(pc) < 30.0) return; // oars mode
-        event.setCancelled(true); // anchor mode: block movement
-    }
-
     // Intercept cruise sign clicks before Movecraft's NORMAL-priority handler sees them.
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = false)
     public void onCruiseSign(PlayerInteractEvent event) {
@@ -830,8 +824,8 @@ public class ShipMenuListener implements Listener {
         PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
         if (craft == null) return;
         if (sailGears.getOrDefault(player.getUniqueId(), SailGear.FULL) != SailGear.NONE) return;
-        if (healthBarListener.getSailWoolRawPct(craft) < 30.0) return; // oars mode, allow
-        event.setCancelled(true); // anchor mode: block cruise sign
+        player.sendMessage(Lang.msg("msg.sail_cruise_blocked", player, NamedTextColor.YELLOW));
+        event.setCancelled(true);
     }
 
     // Every tick: force-stop native cruise for anchor-mode ships (belt-and-suspenders).

@@ -3,7 +3,13 @@ package me.missaria.movecraftcannons;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+
+import java.io.File;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 
 public class MovecraftCannonsPlugin extends JavaPlugin {
 
@@ -36,6 +42,8 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(turretListener, this);
         wasdListener.setTurretListener(turretListener);
         shipMenu.setTurretListener(turretListener);
+
+        installMovecraftLang();
 
         getLogger().info("MovecraftCannons enabled.");
         if (debug) getLogger().info("  Debug mode ON.");
@@ -78,6 +86,21 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
             return true;
         }
         return false;
+    }
+
+    private void installMovecraftLang() {
+        Plugin mc = getServer().getPluginManager().getPlugin("Movecraft");
+        if (mc == null) return;
+        File dir = new File(mc.getDataFolder(), "localisation");
+        dir.mkdirs();
+        for (String name : new String[]{"movecraftlang_ru.properties", "movecraftlang_uk.properties"}) {
+            File dest = new File(dir, name);
+            try (InputStream in = getResource(name)) {
+                if (in != null) Files.copy(in, dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                getLogger().warning("Failed to install " + name + ": " + e.getMessage());
+            }
+        }
     }
 
     @Override

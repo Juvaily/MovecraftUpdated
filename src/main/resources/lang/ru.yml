@@ -123,9 +123,10 @@ menu.sail.full_lore:   "Нормальная скорость"
 menu.sail.half:        "Пол паруса"
 menu.sail.half_lore:   "Скорость ÷ 2"
 menu.sail.none:        "Убрать паруса"
-menu.sail.none_lore:   "Скорость ÷ 3"
+menu.sail.none_lore:   "Только ручное управление (WASD)"
 menu.sail.locked_lore: "Недостаточно парусов"
 msg.sail_locked:       "§cНедостаточно парусов для этого режима."
+msg.sail_cruise_blocked: "§eПаруса спущены — круиз недоступен. Используйте DC режим (WASD)."
 
 # ── Health bar family names ───────────────────────────────────────────────────
 health.family.planks:        "Доски"
