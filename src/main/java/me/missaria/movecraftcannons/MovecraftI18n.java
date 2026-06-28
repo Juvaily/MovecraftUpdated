@@ -142,6 +142,14 @@ public class MovecraftI18n implements Listener {
           "Вы должны управлять транспортом.",
           "Ви маєте керувати транспортом.");
 
+        // Cruise sign state (sent as action bar by BaseCraft)
+        e("Cruise: ON",
+          "Круиз: ВКЛ",
+          "Крейсерський: УВІМК");
+        e("Cruise: OFF",
+          "Круиз: ВЫКЛ",
+          "Крейсерський: ВИМК");
+
         // Misc
         e("Gear of craft changed.",
           "Передача переключена.",
@@ -262,29 +270,48 @@ public class MovecraftI18n implements Listener {
     // ── Packet replacement ────────────────────────────────────────────────────
 
     static Object tryReplace(Object pkt, String lang) {
-        if (!pkt.getClass().getSimpleName().equals("ClientboundSystemChatPacket")) return pkt;
+        String cls = pkt.getClass().getSimpleName();
+        if (cls.equals("ClientboundSystemChatPacket"))  return tryReplaceChat(pkt, lang);
+        if (cls.equals("ClientboundSetActionBarTextPacket")) return tryReplaceActionBar(pkt, lang);
+        return pkt;
+    }
+
+    private static Object tryReplaceChat(Object pkt, String lang) {
         try {
             Field cf = findField(pkt.getClass(), "content");
             if (cf == null) return pkt;
             Object nmsComp = cf.get(pkt);
-
-            // Component.getString() returns full plain text
             String plain = (String) nmsComp.getClass().getMethod("getString").invoke(nmsComp);
-
             String[] tr = match(plain);
             if (tr == null) return pkt;
             String text = "uk".equals(lang) ? tr[UK] : tr[RU];
-
-            // net.minecraft.network.chat.Component.literal(text)
             Class<?> compCls = Class.forName("net.minecraft.network.chat.Component");
             Object newNms = compCls.getMethod("literal", String.class).invoke(null, text);
-
             Field of = findField(pkt.getClass(), "overlay");
             if (of == null) return pkt;
-
             Constructor<?> ctor = pkt.getClass().getDeclaredConstructor(compCls, boolean.class);
             ctor.setAccessible(true);
             return ctor.newInstance(newNms, of.get(pkt));
+        } catch (Exception e) {
+            return pkt;
+        }
+    }
+
+    private static Object tryReplaceActionBar(Object pkt, String lang) {
+        try {
+            // ClientboundSetActionBarTextPacket has one component field (named "text" in 1.21)
+            Field tf = findField(pkt.getClass(), "text");
+            if (tf == null) return pkt;
+            Object nmsComp = tf.get(pkt);
+            String plain = (String) nmsComp.getClass().getMethod("getString").invoke(nmsComp);
+            String[] tr = match(plain);
+            if (tr == null) return pkt;
+            String text = "uk".equals(lang) ? tr[UK] : tr[RU];
+            Class<?> compCls = Class.forName("net.minecraft.network.chat.Component");
+            Object newNms = compCls.getMethod("literal", String.class).invoke(null, text);
+            Constructor<?> ctor = pkt.getClass().getDeclaredConstructor(compCls);
+            ctor.setAccessible(true);
+            return ctor.newInstance(newNms);
         } catch (Exception e) {
             return pkt;
         }

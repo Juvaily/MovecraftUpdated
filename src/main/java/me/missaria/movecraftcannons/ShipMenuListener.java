@@ -489,7 +489,7 @@ public class ShipMenuListener implements Listener {
 
     private void buildWindCompass(Inventory inv, Player player) {
         int s = windManager.getStrength();
-        WindManager.Direction windDir = s >= 2 ? windManager.getDirection() : null;
+        WindManager.Direction windDir = s >= 1 ? windManager.getDirection() : null;
 
         // Background — only columns 0-2 of rows 3-5 (cols 3+ freed for other buttons)
         ItemStack bg = windBgPane();
@@ -531,7 +531,10 @@ public class ShipMenuListener implements Listener {
         List<Component> lore = new ArrayList<>();
         switch (strength) {
             case 0 -> lore.add(loreComp(Lang.get("menu.wind.calm_eff", player), NamedTextColor.RED));
-            case 1 -> lore.add(loreComp(Lang.get("menu.wind.cross", player, 1), NamedTextColor.GREEN));
+            case 1 -> {
+                lore.add(loreComp(Lang.get("menu.wind.cross", player, 1), NamedTextColor.GREEN));
+                lore.add(loreComp(Lang.get("menu.wind.head",  player, 1), NamedTextColor.RED));
+            }
             case 2 -> {
                 lore.add(loreComp(Lang.get("menu.wind.tail",  player, 4), NamedTextColor.GREEN));
                 lore.add(loreComp(Lang.get("menu.wind.cross", player, 2), NamedTextColor.AQUA));
