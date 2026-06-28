@@ -96,6 +96,17 @@ public class HealthBarListener implements Listener {
             }
             origEntryCount.put(uid, maxCounts);
             moveMinCount.put(uid, minCounts);
+
+            boolean belowMin = false;
+            for (int i = 0; i < minCounts.length; i++) {
+                if (minCounts[i] > 0 && sc[2 + i] < minCounts[i]) { belowMin = true; break; }
+            }
+            if (belowMin) {
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                    craft.setDisabled(true);
+                    craft.setCruising(false);
+                }, 1L);
+            }
         }
         if (!fEntries.isEmpty()) {
             int[] maxCounts = new int[fEntries.size()];

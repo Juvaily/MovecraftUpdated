@@ -56,10 +56,10 @@ import org.bukkit.scheduler.BukkitTask;
 public class ShipMenuListener implements Listener {
 
     private enum SailGear {
-        FULL(1), HALF(2), NONE(3);
+        FULL(1), HALF(2), NONE(0);
         final int divisor;
         SailGear(int d) { divisor = d; }
-        int apply(int baseBps) { return Math.max(1, baseBps / divisor); }
+        int apply(int baseBps) { return divisor == 0 ? 0 : Math.max(1, baseBps / divisor); }
     }
 
     private final MovecraftCannonsPlugin plugin;
@@ -690,7 +690,7 @@ public class ShipMenuListener implements Listener {
         if (gear == SailGear.FULL) {
             setCruise(player, craft, dir);
         } else {
-            // HALF: half speed + wind; NONE (oars): 1/3 speed, no wind — both via reducedDirs
+            // HALF: half speed + wind; NONE: no movement — both via reducedDirs
             craft.setCruising(false);
             reducedDirs.put(uid, dir);
         }
@@ -706,7 +706,7 @@ public class ShipMenuListener implements Listener {
             if (!baseBpsCache.containsKey(uid)) baseBpsCache.put(uid, getBaseBps(craft));
             lateralCruiseDirs.put(uid, dir);
         } else {
-            // HALF: half speed + wind; NONE (oars): 1/3 speed, no wind — via reducedDirs
+            // HALF: half speed + wind; NONE: no movement — via reducedDirs
             craft.setCruising(false);
             lateralCruiseDirs.remove(uid);
             reducedDirs.put(uid, dir);
@@ -724,10 +724,11 @@ public class ShipMenuListener implements Listener {
             if (player == null) { toRemove.add(uid); continue; }
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
             if (craft == null) { toRemove.add(uid); continue; }
+            if (craft.getDisabled()) continue;
             SailGear gear = sailGears.getOrDefault(uid, SailGear.HALF);
             int baseBps = baseBpsCache.getOrDefault(uid, getBaseBps(craft));
             int move    = gear.apply(baseBps);
-            // NONE gear = oars: no wind effect (manual propulsion only)
+            // NONE gear = sails down: no movement, no wind
             int wind    = gear == SailGear.NONE ? 0 : windManager.getEffect(entry.getValue());
             int total   = Math.max(0, move + wind);
             if (total == 0) continue;
@@ -754,6 +755,7 @@ public class ShipMenuListener implements Listener {
             if (player == null) { toRemoveLat.add(uid); continue; }
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
             if (craft == null) { toRemoveLat.add(uid); continue; }
+            if (craft.getDisabled()) continue;
             int baseBps = baseBpsCache.getOrDefault(uid, getBaseBps(craft));
             int move    = Math.max(1, baseBps / 2);
             int[] cv    = sailDirVec(entry.getValue());
