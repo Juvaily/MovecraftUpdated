@@ -10,7 +10,7 @@ depend:
 commands:
   craftadmin:
     description: Открыть меню администратора для редактирования типа транспорта
-    usage: /craftadmin [тип]
+    usage: /craftadmin [тип|list]
     permission: movecraftcannons.admin.craft
     aliases: [cadmin, ca]
   shipmenu:

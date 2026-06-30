@@ -124,19 +124,20 @@ public class CraftAdminMenu implements Listener {
 
         CraftType type = null;
         if (args.length >= 1) {
-            String search = String.join(" ", args).toLowerCase();
-            for (CraftType ct : CraftManager.getInstance().getCraftTypes()) {
-                try {
-                    String name = ct.getStringProperty(CraftType.NAME);
-                    if (name != null && name.toLowerCase().contains(search)) { type = ct; break; }
-                } catch (Exception ignored) {}
+            // "/craftadmin list" — show all registered type names
+            if (args[0].equalsIgnoreCase("list")) {
+                sendTypeList(player);
+                return true;
             }
+            type = findTypeByName(String.join(" ", args));
             if (type == null) {
                 player.sendMessage(Lang.msg("msg.admin.type_not_found", player, NamedTextColor.RED,
                         String.join(" ", args)));
+                sendTypeList(player);
                 return true;
             }
         } else {
+            // No args: piloted craft first, then any nearby active craft
             PlayerCraft pc = CraftManager.getInstance().getCraftByPlayer(player);
             if (pc != null) {
                 type = pc.getType();
@@ -157,6 +158,7 @@ public class CraftAdminMenu implements Listener {
 
         if (type == null) {
             player.sendMessage(Lang.msg("msg.admin.no_craft_nearby", player, NamedTextColor.RED));
+            sendTypeList(player);
             return true;
         }
 
@@ -166,6 +168,44 @@ public class CraftAdminMenu implements Listener {
         blockOffset.put(uid, 0);
         openMenu(player);
         return true;
+    }
+
+    // ── Type name lookup ───────────────────────────────────────────────────────
+
+    /** Find a registered CraftType whose name contains the search string (case-insensitive, normalized). */
+    private CraftType findTypeByName(String search) {
+        String normSearch = normName(search);
+        CraftType fallback = null;
+        for (CraftType ct : CraftManager.getInstance().getCraftTypes()) {
+            String name = safeTypeName(ct);
+            if (name == null) continue;
+            if (normName(name).equals(normSearch)) return ct;           // exact
+            if (fallback == null && normName(name).contains(normSearch)) fallback = ct; // partial
+        }
+        return fallback;
+    }
+
+    private String safeTypeName(CraftType ct) {
+        try { return ct.getStringProperty(CraftType.NAME); }
+        catch (Exception e) { return null; }
+    }
+
+    /** Send the player a list of all registered craft type names. */
+    private void sendTypeList(Player player) {
+        List<String> names = new ArrayList<>();
+        for (CraftType ct : CraftManager.getInstance().getCraftTypes()) {
+            String n = safeTypeName(ct);
+            if (n != null) names.add(n);
+        }
+        if (names.isEmpty()) {
+            player.sendMessage(Component.text("Нет зарегистрированных типов транспорта.")
+                    .color(NamedTextColor.GRAY));
+            return;
+        }
+        names.sort(String.CASE_INSENSITIVE_ORDER);
+        player.sendMessage(Component.text("Типы транспорта (/craftadmin <имя>): ")
+                .color(NamedTextColor.GOLD)
+                .append(Component.text(String.join(", ", names)).color(NamedTextColor.YELLOW)));
     }
 
     // ── Build and open inventory ───────────────────────────────────────────────
