@@ -106,7 +106,16 @@ public class CraftAdminMenu implements Listener {
     private final MovecraftCannonsPlugin plugin;
     private final Map<UUID, Tab>                currentTab    = new ConcurrentHashMap<>();
     private final Map<UUID, Integer>            blockOffset   = new ConcurrentHashMap<>();
+    // CraftType mode (may be null in file-only mode)
     private final Map<UUID, CraftType>          targetType    = new ConcurrentHashMap<>();
+    // File-based mode: always set; in CraftType mode it's the .craft file for that type
+    private final Map<UUID, File>               targetFile    = new ConcurrentHashMap<>();
+    // Working block sets — unified source of truth for the menu.
+    // In CraftType mode: mirrors CraftType maps (updated together).
+    // In file-only mode: loaded from YAML, saved back to YAML.
+    private final Map<UUID, Map<Tab, Set<Material>>> workingBlocks = new ConcurrentHashMap<>();
+    // Group tags (#planks, #wool, etc.) from the original YAML — preserved across saves.
+    private final Map<UUID, Map<Tab, List<String>>>  groupTagsCache = new ConcurrentHashMap<>();
     private final Map<UUID, Consumer<Player>[]> menuActions   = new ConcurrentHashMap<>();
     private final Map<UUID, Consumer<Player>[]> shiftActions  = new ConcurrentHashMap<>();
     // Anvil input state: player → callback for the typed string
@@ -122,19 +131,28 @@ public class CraftAdminMenu implements Listener {
             return true;
         }
 
-        CraftType type = null;
-        if (args.length >= 1) {
-            // "/craftadmin list" — show all registered type names
-            if (args[0].equalsIgnoreCase("list")) {
+        CraftType type   = null;
+        File      file   = null;
+        String    search = args.length >= 1 ? String.join(" ", args) : null;
+
+        if (search != null) {
+            if (search.equalsIgnoreCase("list")) {
                 sendTypeList(player);
                 return true;
             }
-            type = findTypeByName(String.join(" ", args));
+            type = findTypeByName(search);
             if (type == null) {
-                player.sendMessage(Lang.msg("msg.admin.type_not_found", player, NamedTextColor.RED,
-                        String.join(" ", args)));
-                sendTypeList(player);
-                return true;
+                // Try to find the .craft file even if Movecraft didn't load the type
+                file = findFileBySearch(search);
+                if (file == null) {
+                    player.sendMessage(Lang.msg("msg.admin.type_not_found", player, NamedTextColor.RED, search));
+                    sendTypeList(player);
+                    return true;
+                }
+                // File-only mode: type is null, file is the .craft on disk
+                player.sendMessage(Lang.msg("msg.admin.file_only_mode", player, NamedTextColor.YELLOW, file.getName()));
+            } else {
+                file = findCraftTypeFile(type);
             }
         } else {
             // No args: piloted craft first, then any nearby active craft
@@ -154,16 +172,24 @@ public class CraftAdminMenu implements Listener {
                     } catch (Exception ignored) {}
                 }
             }
+            if (type != null) file = findCraftTypeFile(type);
         }
 
-        if (type == null) {
+        if (type == null && file == null) {
             player.sendMessage(Lang.msg("msg.admin.no_craft_nearby", player, NamedTextColor.RED));
             sendTypeList(player);
             return true;
         }
 
         UUID uid = player.getUniqueId();
-        targetType.put(uid, type);
+        if (type != null) targetType.put(uid, type);
+        else              targetType.remove(uid);
+        if (file != null) targetFile.put(uid, file);
+        else              targetFile.remove(uid);
+
+        // Load working blocks from source (CraftType takes precedence, then file)
+        loadWorkingBlocks(uid, type, file);
+
         currentTab.putIfAbsent(uid, Tab.ALLOWED);
         blockOffset.put(uid, 0);
         openMenu(player);
@@ -240,31 +266,92 @@ public class CraftAdminMenu implements Listener {
     }
 
     /**
-     * Send the player a list of all registered types.
-     * Shows YAML name (if present) plus the namespacedKey key in parentheses
-     * when they differ — the parenthesised form is always usable in /craftadmin.
+     * Send the player a list of all types (registered AND unregistered files on disk).
+     * Unregistered types (failed to load) are shown with a ⚠ prefix.
      */
     private void sendTypeList(Player player) {
         List<String> entries = new ArrayList<>();
+
+        // Registered types (CraftManager)
         for (CraftType ct : CraftManager.getInstance().getCraftTypes()) {
             String name  = safeTypeName(ct);
             String nkKey = safeNkKey(ct);
-            if (name != null && nkKey != null && !normName(name).equals(normName(nkKey))) {
-                entries.add(name + " (" + nkKey + ")");
-            } else {
-                String show = name != null ? name : nkKey;
-                if (show != null) entries.add(show);
+            String show;
+            if (name != null && nkKey != null && !normName(name).equals(normName(nkKey)))
+                show = name + " (" + nkKey + ")";
+            else
+                show = name != null ? name : nkKey;
+            if (show != null) entries.add(show);
+        }
+
+        // .craft files on disk that weren't in the registered list (failed to load)
+        Plugin mc = Bukkit.getPluginManager().getPlugin("Movecraft");
+        if (mc != null) {
+            for (String dir : new String[]{"types", "craft", "craftTypes"}) {
+                File d = new File(mc.getDataFolder(), dir);
+                if (!d.exists()) continue;
+                File[] files = d.listFiles();
+                if (files == null) continue;
+                for (File f : files) {
+                    if (!f.isFile()) continue;
+                    String fn = f.getName().replaceFirst("\\.[^.]+$", "");
+                    // Add if not already covered by registered types
+                    boolean covered = entries.stream()
+                            .anyMatch(e -> normName(e).contains(normName(fn)));
+                    if (!covered) entries.add("⚠ " + fn + " (не загружен)");
+                }
             }
         }
+
         if (entries.isEmpty()) {
-            player.sendMessage(Component.text("Нет зарегистрированных типов.")
+            player.sendMessage(Component.text("Нет типов транспорта.")
                     .color(NamedTextColor.GRAY));
             return;
         }
         entries.sort(String.CASE_INSENSITIVE_ORDER);
-        player.sendMessage(Component.text("Типы (/craftadmin <имя или ключ в скобках>): ")
+        player.sendMessage(Component.text("Типы (/craftadmin <имя>): ")
                 .color(NamedTextColor.GOLD)
                 .append(Component.text(String.join(", ", entries)).color(NamedTextColor.YELLOW)));
+    }
+
+    /** Find a .craft file on disk by normalized name search. */
+    private File findFileBySearch(String search) {
+        Plugin mc = Bukkit.getPluginManager().getPlugin("Movecraft");
+        if (mc == null) return null;
+        String norm = normName(search);
+        File partialMatch = null;
+        for (String dir : new String[]{"types", "craft", "craftTypes"}) {
+            File d = new File(mc.getDataFolder(), dir);
+            if (!d.exists()) continue;
+            File[] files = d.listFiles();
+            if (files == null) continue;
+            for (File f : files) {
+                if (!f.isFile()) continue;
+                String fn = normName(f.getName().replaceFirst("\\.[^.]+$", ""));
+                if (fn.equals(norm)) return f;
+                if (partialMatch == null && fn.contains(norm)) partialMatch = f;
+            }
+        }
+        return partialMatch;
+    }
+
+    /** Settings tab placeholder in file-only mode. */
+    @SuppressWarnings("unchecked")
+    private void buildFileOnlySettingsNote(Inventory inv, Player player) {
+        ItemStack bg = bgItem();
+        for (int i = 9; i < 54; i++) inv.setItem(i, bg);
+        ItemStack note = new ItemStack(Material.BOOK);
+        ItemMeta m = note.getItemMeta();
+        m.displayName(Component.text("Параметры недоступны в файловом режиме")
+                .color(NamedTextColor.YELLOW).decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(
+                Component.text("Тип не загружен Movecraft.")
+                        .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false),
+                Component.text("Исправь блоки → Сохранить → перезапусти сервер.")
+                        .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)
+        ));
+        note.setItemMeta(m);
+        inv.setItem(31, note);
     }
 
     // ── Build and open inventory ───────────────────────────────────────────────
@@ -272,23 +359,29 @@ public class CraftAdminMenu implements Listener {
     @SuppressWarnings("unchecked")
     private void openMenu(Player player) {
         UUID uid = player.getUniqueId();
-        CraftType type = targetType.get(uid);
-        if (type == null) return;
 
         Tab tab = currentTab.getOrDefault(uid, Tab.ALLOWED);
         AdminMenuHolder holder = new AdminMenuHolder();
-        String title = displayName(type);
+        CraftType type = targetType.get(uid);
+        File      file = targetFile.get(uid);
+        if (type == null && file == null) return;
+        String title = type != null ? displayName(type) : null;
+        if (title == null && file != null) title = file.getName().replaceFirst("\\.[^.]+$", "");
         if (title == null) title = "?";
+        boolean fileOnly = (type == null);
+
         Inventory inv = Bukkit.createInventory(holder, 54,
-                Component.text("⚙ " + title).color(NamedTextColor.DARK_PURPLE));
+                Component.text((fileOnly ? "📄 " : "⚙ ") + title).color(
+                        fileOnly ? NamedTextColor.GOLD : NamedTextColor.DARK_PURPLE));
         holder.setInventory(inv);
 
         Consumer<Player>[] actions = new Consumer[54];
         Consumer<Player>[] shifts  = new Consumer[54];
         buildTabRow(inv, actions, shifts, player, tab);
 
-        if (tab == Tab.SETTINGS) buildSettingsContent(inv, actions, shifts, player, type);
-        else                     buildBlockContent(inv, actions, shifts, player, type, tab);
+        if (tab == Tab.SETTINGS && !fileOnly) buildSettingsContent(inv, actions, shifts, player, type);
+        else if (tab == Tab.SETTINGS)         buildFileOnlySettingsNote(inv, player);
+        else                                  buildBlockContent(inv, actions, shifts, player, uid, tab);
 
         menuActions.put(uid, actions);
         shiftActions.put(uid, shifts);
@@ -319,11 +412,10 @@ public class CraftAdminMenu implements Listener {
 
     @SuppressWarnings("unchecked")
     private void buildBlockContent(Inventory inv, Consumer<Player>[] a, Consumer<Player>[] s,
-                                   Player player, CraftType type, Tab tab) {
-        UUID uid = player.getUniqueId();
+                                   Player player, UUID uid, Tab tab) {
         int offset = blockOffset.getOrDefault(uid, 0);
 
-        List<Material> list = new ArrayList<>(getBlockSet(type, tab));
+        List<Material> list = new ArrayList<>(getWorkingBlocks(uid, tab));
         list.sort(Comparator.comparing(Enum::name));
 
         ItemStack bg = bgItem();
@@ -333,10 +425,11 @@ public class CraftAdminMenu implements Listener {
             Material mat = list.get(offset + i);
             int slot = GRID_START + i;
             setSlot(inv, a, s, slot, blockItem(mat), p -> {
-                removeBlock(type, tab, mat);
-                int off = blockOffset.getOrDefault(p.getUniqueId(), 0);
-                int remaining = getBlockSet(type, tab).size();
-                blockOffset.put(p.getUniqueId(), Math.min(off, Math.max(0, (remaining / GRID_SIZE) * GRID_SIZE)));
+                UUID puid = p.getUniqueId();
+                removeBlock(puid, tab, mat);
+                int off = blockOffset.getOrDefault(puid, 0);
+                int remaining = getWorkingBlocks(puid, tab).size();
+                blockOffset.put(puid, Math.min(off, Math.max(0, (remaining / GRID_SIZE) * GRID_SIZE)));
                 openMenu(p);
             }, null);
         }
@@ -524,11 +617,11 @@ public class CraftAdminMenu implements Listener {
         int slot = event.getRawSlot();
 
         // ── Click in PLAYER's own inventory (slots 54+): add block ─────────
-        if (slot >= 54 && tab != Tab.SETTINGS && type != null) {
+        if (slot >= 54 && tab != Tab.SETTINGS) {
             ItemStack clicked = event.getCurrentItem();
             if (clicked != null && !clicked.getType().isAir() && clicked.getType().isBlock()) {
                 Material mat = clicked.getType();
-                if (addBlock(type, tab, mat)) {
+                if (addBlock(uid, tab, mat)) {
                     player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
                             mat.name().toLowerCase()));
                 } else {
@@ -541,14 +634,13 @@ public class CraftAdminMenu implements Listener {
         }
 
         // ── Drop block onto grid (cursor has block → slot 9-44): add it ───
-        if (slot >= GRID_START && slot < GRID_START + GRID_SIZE
-                && tab != Tab.SETTINGS && type != null) {
+        if (slot >= GRID_START && slot < GRID_START + GRID_SIZE && tab != Tab.SETTINGS) {
             ItemStack cursor = event.getCursor();
             if (cursor != null && !cursor.getType().isAir() && cursor.getType().isBlock()
                     && event.getAction() != InventoryAction.PICKUP_ALL
                     && event.getAction() != InventoryAction.PICKUP_SOME) {
                 Material mat = cursor.getType();
-                if (addBlock(type, tab, mat)) {
+                if (addBlock(uid, tab, mat)) {
                     player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
                             mat.name().toLowerCase()));
                 } else {
@@ -586,8 +678,6 @@ public class CraftAdminMenu implements Listener {
         UUID uid = player.getUniqueId();
         Tab tab = currentTab.getOrDefault(uid, Tab.ALLOWED);
         if (tab == Tab.SETTINGS) return;
-        CraftType type = targetType.get(uid);
-        if (type == null) return;
 
         Material mat = event.getOldCursor().getType();
         if (mat.isAir() || !mat.isBlock()) return;
@@ -595,7 +685,7 @@ public class CraftAdminMenu implements Listener {
         boolean hitsGrid = event.getRawSlots().stream()
                 .anyMatch(s -> s >= GRID_START && s < GRID_START + GRID_SIZE);
         if (hitsGrid) {
-            if (addBlock(type, tab, mat)) {
+            if (addBlock(uid, tab, mat)) {
                 player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
                         mat.name().toLowerCase()));
             } else {
@@ -614,18 +704,88 @@ public class CraftAdminMenu implements Listener {
         shiftActions.remove(uid);
     }
 
-    // ── CraftType read / write ─────────────────────────────────────────────────
+    // ── Working block layer ────────────────────────────────────────────────────
     //
-    //  Internal maps are Map<NamespacedKey, V> — keys match the public/private
-    //  NamespacedKey constants directly.
+    //  workingBlocks is the single source of truth for the menu display.
+    //  In CraftType mode: initialised from CraftType; changes propagate to
+    //  CraftType immediately AND to workingBlocks.
+    //  In file-only mode: initialised from YAML; changes go to workingBlocks only
+    //  until Save is clicked.
 
-    private Set<Material> getBlockSet(CraftType type, Tab tab) {
+    /** Populate workingBlocks (and groupTagsCache) from CraftType (preferred) or YAML file. */
+    private void loadWorkingBlocks(UUID uid, CraftType type, File file) {
+        Map<Tab, Set<Material>> wb   = new LinkedHashMap<>();
+        Map<Tab, List<String>>  tags = new LinkedHashMap<>();
+        YamlConfiguration yaml = (file != null && file.exists())
+                ? YamlConfiguration.loadConfiguration(file) : null;
+
+        if (type != null) {
+            for (Tab t : new Tab[]{Tab.ALLOWED, Tab.FORBIDDEN, Tab.PASSTHROUGH}) {
+                wb.put(t, getBlockSetFromType(type, t));
+            }
+        } else if (yaml != null) {
+            wb.put(Tab.ALLOWED,     parseYamlBlockSet(yaml, "allowedBlocks",     "allowed_blocks"));
+            wb.put(Tab.FORBIDDEN,   parseYamlBlockSet(yaml, "forbiddenBlocks",   "forbidden_blocks"));
+            wb.put(Tab.PASSTHROUGH, parseYamlBlockSet(yaml, "passthroughBlocks", "passthrough_blocks"));
+        }
+
+        if (yaml != null) {
+            tags.put(Tab.ALLOWED,     parseYamlGroupTags(yaml, "allowedBlocks",     "allowed_blocks"));
+            tags.put(Tab.FORBIDDEN,   parseYamlGroupTags(yaml, "forbiddenBlocks",   "forbidden_blocks"));
+            tags.put(Tab.PASSTHROUGH, parseYamlGroupTags(yaml, "passthroughBlocks", "passthrough_blocks"));
+        }
+
+        workingBlocks.put(uid, wb);
+        groupTagsCache.put(uid, tags);
+    }
+
+    private Set<Material> getBlockSetFromType(CraftType type, Tab tab) {
         NamespacedKey key = blockKey(tab);
-        if (key == null) return EnumSet.noneOf(Material.class);
+        if (key == null) return new LinkedHashSet<>();
         try {
             EnumSet<Material> s = type.getMaterialSetProperty(key);
             return s != null ? new LinkedHashSet<>(s) : new LinkedHashSet<>();
         } catch (Exception e) { return new LinkedHashSet<>(); }
+    }
+
+    private Set<Material> parseYamlBlockSet(YamlConfiguration yaml, String keyCC, String keySC) {
+        String k = yaml.contains(keyCC) ? keyCC : yaml.contains(keySC) ? keySC : null;
+        Set<Material> result = new LinkedHashSet<>();
+        if (k == null) return result;
+        List<?> raw = yaml.getList(k);
+        if (raw == null) return result;
+        for (Object entry : raw) {
+            if (!(entry instanceof String s)) continue;
+            if (s.startsWith("#")) continue; // group tags handled separately
+            Material mat = Material.matchMaterial(s);
+            if (mat != null && mat.isBlock()) result.add(mat);
+        }
+        return result;
+    }
+
+    /** Collect Movecraft group tags (#planks, #wool, etc.) from the YAML list — preserved on save. */
+    private List<String> parseYamlGroupTags(YamlConfiguration yaml, String keyCC, String keySC) {
+        String k = yaml.contains(keyCC) ? keyCC : yaml.contains(keySC) ? keySC : null;
+        List<String> tags = new ArrayList<>();
+        if (k == null) return tags;
+        List<?> raw = yaml.getList(k);
+        if (raw == null) return tags;
+        for (Object entry : raw) {
+            if (entry instanceof String s && s.startsWith("#")) tags.add(s);
+        }
+        return tags;
+    }
+
+    private List<String> getGroupTags(UUID uid, Tab tab) {
+        Map<Tab, List<String>> tags = groupTagsCache.get(uid);
+        if (tags == null) return List.of();
+        return tags.getOrDefault(tab, List.of());
+    }
+
+    private Set<Material> getWorkingBlocks(UUID uid, Tab tab) {
+        Map<Tab, Set<Material>> wb = workingBlocks.get(uid);
+        if (wb == null) return new LinkedHashSet<>();
+        return wb.getOrDefault(tab, new LinkedHashSet<>());
     }
 
     private NamespacedKey blockKey(Tab tab) {
@@ -638,14 +798,22 @@ public class CraftAdminMenu implements Listener {
     }
 
     /** Returns true if block was added, false if already present. */
-    private boolean addBlock(CraftType type, Tab tab, Material mat) {
-        if (getBlockSet(type, tab).contains(mat)) return false;
-        modifyMaterialSet(type, blockKey(tab), true, mat);
+    private boolean addBlock(UUID uid, Tab tab, Material mat) {
+        Set<Material> wb = getWorkingBlocks(uid, tab);
+        if (wb.contains(mat)) return false;
+        workingBlocks.computeIfAbsent(uid, k -> new LinkedHashMap<>())
+                .computeIfAbsent(tab, k -> new LinkedHashSet<>()).add(mat);
+        // Also update live CraftType if available
+        CraftType type = targetType.get(uid);
+        if (type != null) modifyMaterialSet(type, blockKey(tab), true, mat);
         return true;
     }
 
-    private void removeBlock(CraftType type, Tab tab, Material mat) {
-        modifyMaterialSet(type, blockKey(tab), false, mat);
+    private void removeBlock(UUID uid, Tab tab, Material mat) {
+        Map<Tab, Set<Material>> wb = workingBlocks.get(uid);
+        if (wb != null) wb.getOrDefault(tab, new LinkedHashSet<>()).remove(mat);
+        CraftType type = targetType.get(uid);
+        if (type != null) modifyMaterialSet(type, blockKey(tab), false, mat);
     }
 
     @SuppressWarnings("unchecked")
@@ -713,46 +881,53 @@ public class CraftAdminMenu implements Listener {
     // ── Save to disk ───────────────────────────────────────────────────────────
 
     private void saveChanges(Player player) {
-        CraftType type = targetType.get(player.getUniqueId());
-        if (type == null) return;
-
-        File file = findCraftTypeFile(type);
+        UUID uid = player.getUniqueId();
+        CraftType type = targetType.get(uid);
+        File file = targetFile.get(uid);
+        if (file == null && type != null) file = findCraftTypeFile(type);
         if (file == null || !file.exists()) {
-            plugin.getLogger().warning("[CraftAdmin] craft type file not found for: " + getTypeName(type));
             player.sendMessage(Lang.msg("msg.admin.no_file", player, NamedTextColor.YELLOW));
             return;
         }
 
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
 
-        saveBlockSet(yaml, type, CraftType.ALLOWED_BLOCKS,     "allowedBlocks",     "allowed_blocks");
-        saveBlockSet(yaml, type, CraftType.FORBIDDEN_BLOCKS,   "forbiddenBlocks",   "forbidden_blocks");
-        saveBlockSet(yaml, type, CraftType.PASSTHROUGH_BLOCKS, "passthroughBlocks", "passthrough_blocks");
+        // Write block sets from workingBlocks (unified source of truth), preserving group tags
+        writeBlockSet(yaml, getWorkingBlocks(uid, Tab.ALLOWED),     getGroupTags(uid, Tab.ALLOWED),     "allowedBlocks",     "allowed_blocks");
+        writeBlockSet(yaml, getWorkingBlocks(uid, Tab.FORBIDDEN),   getGroupTags(uid, Tab.FORBIDDEN),   "forbiddenBlocks",   "forbidden_blocks");
+        writeBlockSet(yaml, getWorkingBlocks(uid, Tab.PASSTHROUGH), getGroupTags(uid, Tab.PASSTHROUGH), "passthroughBlocks", "passthrough_blocks");
 
-        for (IntProp p : IntProp.values()) {
-            int v = safeInt(type, p.key);
-            if (v >= 0) yaml.set(resolveKey(yaml, p.yamlKey), v);
-        }
-        for (DoubleProp p : DoubleProp.values()) {
-            double v = safeDouble(type, p.key);
-            if (v >= 0) yaml.set(resolveKey(yaml, p.yamlKey), v);
+        // Write numeric properties (only if CraftType is available)
+        if (type != null) {
+            for (IntProp p : IntProp.values()) {
+                int v = safeInt(type, p.key);
+                if (v >= 0) yaml.set(resolveKey(yaml, p.yamlKey), v);
+            }
+            for (DoubleProp p : DoubleProp.values()) {
+                double v = safeDouble(type, p.key);
+                if (v >= 0) yaml.set(resolveKey(yaml, p.yamlKey), v);
+            }
         }
 
         try {
             yaml.save(file);
             player.sendMessage(Lang.msg("msg.admin.saved", player, NamedTextColor.GREEN, file.getName()));
+            if (type == null) {
+                player.sendMessage(Lang.msg("msg.admin.file_saved_reload", player, NamedTextColor.YELLOW));
+            }
         } catch (IOException e) {
             player.sendMessage(Lang.msg("msg.admin.save_error", player, NamedTextColor.RED, e.getMessage()));
         }
+        if (file != null) targetFile.put(uid, file);
     }
 
-    // ── Reload from disk → restore in-memory CraftType state ─────────────────
+    // ── Reload from disk ──────────────────────────────────────────────────────
 
     private void reloadFromFile(Player player) {
-        CraftType type = targetType.get(player.getUniqueId());
-        if (type == null) return;
-
-        File file = findCraftTypeFile(type);
+        UUID uid = player.getUniqueId();
+        CraftType type = targetType.get(uid);
+        File file = targetFile.get(uid);
+        if (file == null && type != null) file = findCraftTypeFile(type);
         if (file == null || !file.exists()) {
             player.sendMessage(Lang.msg("msg.admin.no_file", player, NamedTextColor.YELLOW));
             return;
@@ -760,58 +935,56 @@ public class CraftAdminMenu implements Listener {
 
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
 
-        // Block sets
-        reloadBlockSet(yaml, type, CraftType.ALLOWED_BLOCKS,     "allowedBlocks",     "allowed_blocks");
-        reloadBlockSet(yaml, type, CraftType.FORBIDDEN_BLOCKS,   "forbiddenBlocks",   "forbidden_blocks");
-        reloadBlockSet(yaml, type, CraftType.PASSTHROUGH_BLOCKS, "passthroughBlocks", "passthrough_blocks");
+        // Reload workingBlocks from file
+        loadWorkingBlocks(uid, null, file); // file-first reload
 
-        // Integer properties
-        for (IntProp p : IntProp.values()) {
-            String key = resolveKeyPair(yaml, p.yamlKey, toCamel(p.yamlKey));
-            if (yaml.contains(key)) modifyInt(type, p.key, yaml.getInt(key));
-        }
-        // Double/float properties
-        for (DoubleProp p : DoubleProp.values()) {
-            String key = resolveKeyPair(yaml, p.yamlKey, toCamel(p.yamlKey));
-            if (yaml.contains(key)) modifyDoubleOrFloat(type, p.key, yaml.getDouble(key));
+        // If CraftType is available, also propagate to its in-memory maps
+        if (type != null) {
+            reloadBlockSetIntoType(yaml, type, CraftType.ALLOWED_BLOCKS,     "allowedBlocks", "allowed_blocks");
+            reloadBlockSetIntoType(yaml, type, CraftType.FORBIDDEN_BLOCKS,   "forbiddenBlocks", "forbidden_blocks");
+            reloadBlockSetIntoType(yaml, type, CraftType.PASSTHROUGH_BLOCKS, "passthroughBlocks", "passthrough_blocks");
+
+            for (IntProp p : IntProp.values()) {
+                String key = resolveKeyPair(yaml, p.yamlKey, toCamel(p.yamlKey));
+                if (yaml.contains(key)) modifyInt(type, p.key, yaml.getInt(key));
+            }
+            for (DoubleProp p : DoubleProp.values()) {
+                String key = resolveKeyPair(yaml, p.yamlKey, toCamel(p.yamlKey));
+                if (yaml.contains(key)) modifyDoubleOrFloat(type, p.key, yaml.getDouble(key));
+            }
         }
 
+        if (file != null) targetFile.put(uid, file);
         player.sendMessage(Lang.msg("msg.admin.reloaded", player, NamedTextColor.GREEN, file.getName()));
     }
 
     @SuppressWarnings("unchecked")
-    private void reloadBlockSet(YamlConfiguration yaml, CraftType type,
-                                NamespacedKey key, String keyCC, String keySC) {
+    private void reloadBlockSetIntoType(YamlConfiguration yaml, CraftType type,
+                                        NamespacedKey key, String keyCC, String keySC) {
         String yamlKey = yaml.contains(keyCC) ? keyCC : yaml.contains(keySC) ? keySC : null;
         if (yamlKey == null) return;
         List<?> raw = yaml.getList(yamlKey);
         if (raw == null) return;
-
         EnumSet<Material> set = EnumSet.noneOf(Material.class);
         for (Object entry : raw) {
             if (!(entry instanceof String s)) continue;
             Material mat = Material.matchMaterial(s);
             if (mat != null) set.add(mat);
         }
-
         try {
             Field f = rf(CraftType.class, "materialSetPropertyMap");
-            Map<NamespacedKey, EnumSet<Material>> map =
-                    (Map<NamespacedKey, EnumSet<Material>>) f.get(type);
-            map.put(key, set);
+            ((Map<NamespacedKey, EnumSet<Material>>) f.get(type)).put(key, set);
         } catch (Exception e) {
-            plugin.getLogger().warning("[CraftAdmin] reloadBlockSet: " + e);
+            plugin.getLogger().warning("[CraftAdmin] reloadBlockSetIntoType: " + e);
         }
     }
 
-    private void saveBlockSet(YamlConfiguration yaml, CraftType type,
-                              NamespacedKey key, String keyCC, String keySC) {
-        try {
-            EnumSet<Material> set = type.getMaterialSetProperty(key);
-            if (set == null) return;
-            List<String> names = set.stream().map(m -> m.name().toLowerCase()).sorted().toList();
-            yaml.set(resolveKeyPair(yaml, keySC, keyCC), names);
-        } catch (Exception ignored) {}
+    /** Write a Set<Material> (plus original group tags) to a YAML config. */
+    private void writeBlockSet(YamlConfiguration yaml, Set<Material> blocks, List<String> groupTags, String keyCC, String keySC) {
+        List<String> names = new ArrayList<>(groupTags);
+        blocks.stream().map(m -> m.name().toLowerCase()).sorted().forEach(names::add);
+        if (names.isEmpty()) return;
+        yaml.set(resolveKeyPair(yaml, keySC, keyCC), names);
     }
 
     // ── File finding ───────────────────────────────────────────────────────────
