@@ -235,6 +235,7 @@ msg.admin.no_craft_nearby:  "§cНет транспорта рядом. Пило
 msg.admin.type_not_found:   "§cТип транспорта не найден: {0}"
 msg.admin.not_a_block:      "§cВ руке нет блока."
 msg.admin.block_added:      "§aБлок добавлен: {0}"
+msg.admin.block_exists:     "§e{0} уже есть в этом списке."
 msg.admin.block_removed:    "§eБлок удалён: {0}"
 msg.admin.prompt_int:       "§eВведите новое целое значение для §f{0}§e (или §cотмена§e):"
 msg.admin.prompt_double:    "§eВведите новое дробное значение для §f{0}§e (или §cотмена§e):"

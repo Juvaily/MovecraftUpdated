@@ -34,6 +34,7 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.*;
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
@@ -424,9 +425,14 @@ public class CraftAdminMenu implements Listener {
         if (slot >= 54 && tab != Tab.SETTINGS && type != null) {
             ItemStack clicked = event.getCurrentItem();
             if (clicked != null && !clicked.getType().isAir() && clicked.getType().isBlock()) {
-                addBlock(type, tab, clicked.getType());
-                player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
-                        clicked.getType().name().toLowerCase()));
+                Material mat = clicked.getType();
+                if (addBlock(type, tab, mat)) {
+                    player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
+                            mat.name().toLowerCase()));
+                } else {
+                    player.sendMessage(Lang.msg("msg.admin.block_exists", player, NamedTextColor.YELLOW,
+                            mat.name().toLowerCase()));
+                }
                 Bukkit.getScheduler().runTask(plugin, () -> openMenu(player));
             }
             return;
@@ -439,9 +445,14 @@ public class CraftAdminMenu implements Listener {
             if (cursor != null && !cursor.getType().isAir() && cursor.getType().isBlock()
                     && event.getAction() != InventoryAction.PICKUP_ALL
                     && event.getAction() != InventoryAction.PICKUP_SOME) {
-                addBlock(type, tab, cursor.getType());
-                player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
-                        cursor.getType().name().toLowerCase()));
+                Material mat = cursor.getType();
+                if (addBlock(type, tab, mat)) {
+                    player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
+                            mat.name().toLowerCase()));
+                } else {
+                    player.sendMessage(Lang.msg("msg.admin.block_exists", player, NamedTextColor.YELLOW,
+                            mat.name().toLowerCase()));
+                }
                 Bukkit.getScheduler().runTask(plugin, () -> openMenu(player));
                 return;
             }
@@ -482,9 +493,13 @@ public class CraftAdminMenu implements Listener {
         boolean hitsGrid = event.getRawSlots().stream()
                 .anyMatch(s -> s >= GRID_START && s < GRID_START + GRID_SIZE);
         if (hitsGrid) {
-            addBlock(type, tab, mat);
-            player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
-                    mat.name().toLowerCase()));
+            if (addBlock(type, tab, mat)) {
+                player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
+                        mat.name().toLowerCase()));
+            } else {
+                player.sendMessage(Lang.msg("msg.admin.block_exists", player, NamedTextColor.YELLOW,
+                        mat.name().toLowerCase()));
+            }
             Bukkit.getScheduler().runTask(plugin, () -> openMenu(player));
         }
     }
@@ -520,8 +535,11 @@ public class CraftAdminMenu implements Listener {
         };
     }
 
-    private void addBlock(CraftType type, Tab tab, Material mat) {
+    /** Returns true if block was added, false if already present. */
+    private boolean addBlock(CraftType type, Tab tab, Material mat) {
+        if (getBlockSet(type, tab).contains(mat)) return false;
         modifyMaterialSet(type, blockKey(tab), true, mat);
+        return true;
     }
 
     private void removeBlock(CraftType type, Tab tab, Material mat) {
@@ -638,44 +656,61 @@ public class CraftAdminMenu implements Listener {
 
     // ── File finding ───────────────────────────────────────────────────────────
     //
-    //  CraftType is constructed with a File; fileKey likely holds the absolute path.
     //  Movecraft stores types in plugins/Movecraft/types/*.craft
+    //
+    //  Strategy:
+    //  1. Scan types/ (and other dirs) comparing normalized names
+    //     ("Ground Train" == "ground_train" == "groundtrain")
+    //  2. As last resort, open each .craft file and check its name: field
 
     private File findCraftTypeFile(CraftType type) {
-        // Try fileKey as absolute path first (most reliable)
-        try {
-            Field f = rf(CraftType.class, "fileKey");
-            Object val = f.get(type);
-            if (val instanceof String path && !path.isBlank()) {
-                File direct = new File(path);
-                if (direct.exists()) return direct;
-                plugin.getLogger().info("[CraftAdmin] fileKey='" + path + "' not found as absolute path");
-            }
-        } catch (Exception ignored) {}
-
         Plugin mc = Bukkit.getPluginManager().getPlugin("Movecraft");
         if (mc == null) return null;
         File dataFolder = mc.getDataFolder();
         String typeName = getTypeName(type);
+        String normTarget = normName(typeName);
 
-        // Scan known directories
+        // Pass 1: match by filename (normalized)
+        List<File> candidates = new ArrayList<>();
         for (String dir : new String[]{"types", "craft", "craftTypes", ""}) {
             File d = dir.isEmpty() ? dataFolder : new File(dataFolder, dir);
             if (!d.exists()) continue;
             File[] files = d.listFiles();
             if (files == null) continue;
             for (File f : files) {
-                String base = f.getName().replaceFirst("\\.[^.]+$", "");
-                if (base.equalsIgnoreCase(typeName)) {
-                    plugin.getLogger().info("[CraftAdmin] found type file: " + f.getAbsolutePath());
+                if (!f.isFile()) continue;
+                String base = normName(f.getName().replaceFirst("\\.[^.]+$", ""));
+                if (base.equals(normTarget)) {
+                    plugin.getLogger().info("[CraftAdmin] found by name: " + f.getAbsolutePath());
                     return f;
                 }
+                candidates.add(f); // keep for pass 2
             }
         }
 
-        plugin.getLogger().warning("[CraftAdmin] Could not find file for type: " + typeName
-                + " in " + dataFolder.getAbsolutePath());
+        // Pass 2: open each candidate and check YAML name: field
+        for (File f : candidates) {
+            try {
+                YamlConfiguration yaml = YamlConfiguration.loadConfiguration(f);
+                // Movecraft uses various keys: name, craftType, type
+                for (String key : new String[]{"name", "craftType", "type"}) {
+                    String val = yaml.getString(key);
+                    if (val != null && normName(val).equals(normTarget)) {
+                        plugin.getLogger().info("[CraftAdmin] found by yaml '" + key + "': " + f.getAbsolutePath());
+                        return f;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        plugin.getLogger().warning("[CraftAdmin] type file not found for '" + typeName
+                + "' (normalized: '" + normTarget + "') in " + dataFolder.getAbsolutePath());
         return null;
+    }
+
+    /** Normalize for comparison: lowercase, strip spaces and underscores. */
+    private String normName(String s) {
+        return s.toLowerCase().replaceAll("[_ ]+", "");
     }
 
     private String getTypeName(CraftType type) {
@@ -743,12 +778,17 @@ public class CraftAdminMenu implements Listener {
     }
 
     private ItemStack blockItem(Material mat) {
-        ItemStack is = mat.isItem() ? new ItemStack(mat) : new ItemStack(Material.BARRIER);
+        // Some blocks have no placeable item form; use PAPER as neutral icon
+        ItemStack is = new ItemStack(mat.isItem() && mat != Material.AIR ? mat : Material.PAPER);
         ItemMeta m = is.getItemMeta();
         m.displayName(Component.text(mat.name().toLowerCase())
                 .color(NamedTextColor.WHITE).decoration(TextDecoration.ITALIC, false));
-        m.lore(List.of(Component.text("Нажмите — удалить")
-                .color(NamedTextColor.RED).decoration(TextDecoration.ITALIC, false)));
+        List<Component> lore = new ArrayList<>();
+        if (!mat.isItem()) lore.add(Component.text("(нет предмета — тех. блок)")
+                .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        lore.add(Component.text("Нажмите — удалить")
+                .color(NamedTextColor.RED).decoration(TextDecoration.ITALIC, false));
+        m.lore(lore);
         is.setItemMeta(m);
         return is;
     }
