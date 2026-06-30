@@ -172,106 +172,99 @@ public class CraftAdminMenu implements Listener {
 
     // ── Type name lookup ───────────────────────────────────────────────────────
 
-    /**
-     * Find a CraftType by name.
-     *
-     * Strategy (in order):
-     *  1. CraftManager.getCraftTypeFromString — Movecraft's own lookup (uses name: field)
-     *  2. Scan types/ folder filenames, call getCraftTypeFromString per filename
-     *  3. Iterate getCraftTypes() with normalized name comparison
-     */
+    // ── Type name lookup ───────────────────────────────────────────────────────
+    //
+    //  Each CraftType has:
+    //    • stringPropertyMap.get(NAME_KEY) → the "name:" YAML value (may be absent)
+    //    • namespacedKey field              → e.g. movecraft:trader (always present,
+    //                                         derived from the .craft filename)
+    //
+    //  getCraftTypeFromString(s) uses the name: value internally and fails when
+    //  the YAML has no name: field.  We use namespacedKey.getKey() as a reliable
+    //  fallback: for "Trader.craft" the key is always "trader".
+
     private CraftType findTypeByName(String search) {
-        // 1. Direct Movecraft lookup
+        String normSearch = normName(search);
+
+        // Pass 1: iterate all registered types — exact match on name OR namespacedKey
+        CraftType partial = null;
+        for (CraftType ct : CraftManager.getInstance().getCraftTypes()) {
+            // Try YAML name: field
+            String name = safeTypeName(ct);
+            if (name != null) {
+                if (normName(name).equals(normSearch)) return ct;
+                if (partial == null && normName(name).contains(normSearch)) partial = ct;
+            }
+            // Try namespacedKey.getKey() (always present, e.g. "trader" for Trader.craft)
+            String nkKey = safeNkKey(ct);
+            if (nkKey != null) {
+                if (normName(nkKey).equals(normSearch)) return ct;
+                if (partial == null && normName(nkKey).contains(normSearch)) partial = ct;
+            }
+        }
+        if (partial != null) return partial;
+
+        // Pass 2: Movecraft's own lookup (uses name: field)
         try {
             CraftType ct = CraftManager.getInstance().getCraftTypeFromString(search);
             if (ct != null) return ct;
         } catch (Exception ignored) {}
 
-        // 2. Filename-based: scan disk and try exact then partial filename match
-        List<String> fileNames = listTypeFileNames();
-        String normSearch = normName(search);
-        String partialMatch = null;
-        for (String fn : fileNames) {
-            if (normName(fn).equals(normSearch)) {
-                try {
-                    CraftType ct = CraftManager.getInstance().getCraftTypeFromString(fn);
-                    if (ct != null) return ct;
-                } catch (Exception ignored) {}
-            }
-            if (partialMatch == null && normName(fn).contains(normSearch)) partialMatch = fn;
-        }
-        if (partialMatch != null) {
-            try {
-                CraftType ct = CraftManager.getInstance().getCraftTypeFromString(partialMatch);
-                if (ct != null) return ct;
-            } catch (Exception ignored) {}
-        }
-
-        // 3. Iterate registered types with normalized name comparison
-        CraftType fallback = null;
-        for (CraftType ct : CraftManager.getInstance().getCraftTypes()) {
-            String name = safeTypeName(ct);
-            if (name == null) continue;
-            if (normName(name).equals(normSearch)) return ct;
-            if (fallback == null && normName(name).contains(normSearch)) fallback = ct;
-        }
-        return fallback;
+        return null;
     }
 
+    /** YAML name: field value, or null if absent / throws. */
     private String safeTypeName(CraftType ct) {
         try { return ct.getStringProperty(CraftType.NAME); }
         catch (Exception e) { return null; }
     }
 
+    /** namespacedKey.getKey() — e.g. "trader" for a type loaded from Trader.craft. */
+    private String safeNkKey(CraftType ct) {
+        try {
+            Field f = rf(CraftType.class, "namespacedKey");
+            Object nk = f.get(ct);
+            if (nk instanceof NamespacedKey key) return key.getKey();
+        } catch (Exception ignored) {}
+        return null;
+    }
+
     /**
-     * Send the player a list of all available craft type names.
-     *
-     * Sources:
-     *  - All .craft filenames in Movecraft's types/ folder (most reliable)
-     *  - getCraftTypes() with safeTypeName as fallback if folder scan fails
+     * Human-readable identifier for a CraftType, preferring the YAML name: value,
+     * then the namespacedKey key (filename-derived), then null.
+     */
+    private String displayName(CraftType ct) {
+        String n = safeTypeName(ct);
+        if (n != null) return n;
+        return safeNkKey(ct);
+    }
+
+    /**
+     * Send the player a list of all registered types.
+     * Shows YAML name (if present) plus the namespacedKey key in parentheses
+     * when they differ — the parenthesised form is always usable in /craftadmin.
      */
     private void sendTypeList(Player player) {
-        List<String> names = new ArrayList<>();
-
-        // Primary: filenames from disk
-        List<String> fileNames = listTypeFileNames();
-        for (String fn : fileNames) {
-            // Show as-is; admin uses this exact string to find the type
-            if (!names.contains(fn)) names.add(fn);
-        }
-
-        // Fallback: registered types with readable names (may overlap or differ from filenames)
+        List<String> entries = new ArrayList<>();
         for (CraftType ct : CraftManager.getInstance().getCraftTypes()) {
-            String n = safeTypeName(ct);
-            if (n != null && !names.contains(n)) names.add(n);
+            String name  = safeTypeName(ct);
+            String nkKey = safeNkKey(ct);
+            if (name != null && nkKey != null && !normName(name).equals(normName(nkKey))) {
+                entries.add(name + " (" + nkKey + ")");
+            } else {
+                String show = name != null ? name : nkKey;
+                if (show != null) entries.add(show);
+            }
         }
-
-        if (names.isEmpty()) {
-            player.sendMessage(Component.text("Нет зарегистрированных типов. Проверь папку Movecraft/types/")
+        if (entries.isEmpty()) {
+            player.sendMessage(Component.text("Нет зарегистрированных типов.")
                     .color(NamedTextColor.GRAY));
             return;
         }
-        names.sort(String.CASE_INSENSITIVE_ORDER);
-        player.sendMessage(Component.text("Типы (/craftadmin <имя>): ")
+        entries.sort(String.CASE_INSENSITIVE_ORDER);
+        player.sendMessage(Component.text("Типы (/craftadmin <имя или ключ в скобках>): ")
                 .color(NamedTextColor.GOLD)
-                .append(Component.text(String.join(", ", names)).color(NamedTextColor.YELLOW)));
-    }
-
-    /** Returns all .craft filenames without extension from Movecraft's types folder. */
-    private List<String> listTypeFileNames() {
-        Plugin mc = Bukkit.getPluginManager().getPlugin("Movecraft");
-        if (mc == null) return List.of();
-        List<String> result = new ArrayList<>();
-        for (String dir : new String[]{"types", "craft", "craftTypes"}) {
-            File d = new File(mc.getDataFolder(), dir);
-            if (!d.exists()) continue;
-            File[] files = d.listFiles();
-            if (files == null) continue;
-            for (File f : files) {
-                if (f.isFile()) result.add(f.getName().replaceFirst("\\.[^.]+$", ""));
-            }
-        }
-        return result;
+                .append(Component.text(String.join(", ", entries)).color(NamedTextColor.YELLOW)));
     }
 
     // ── Build and open inventory ───────────────────────────────────────────────
@@ -284,8 +277,10 @@ public class CraftAdminMenu implements Listener {
 
         Tab tab = currentTab.getOrDefault(uid, Tab.ALLOWED);
         AdminMenuHolder holder = new AdminMenuHolder();
+        String title = displayName(type);
+        if (title == null) title = "?";
         Inventory inv = Bukkit.createInventory(holder, 54,
-                Component.text("⚙ " + getTypeName(type)).color(NamedTextColor.DARK_PURPLE));
+                Component.text("⚙ " + title).color(NamedTextColor.DARK_PURPLE));
         holder.setInventory(inv);
 
         Consumer<Player>[] actions = new Consumer[54];
@@ -832,8 +827,15 @@ public class CraftAdminMenu implements Listener {
         Plugin mc = Bukkit.getPluginManager().getPlugin("Movecraft");
         if (mc == null) return null;
         File dataFolder = mc.getDataFolder();
+        // Collect all candidate names for this type
+        List<String> candidateNames = new ArrayList<>();
         String typeName = getTypeName(type);
-        String normTarget = normName(typeName);
+        if (!typeName.equals("Unknown")) candidateNames.add(typeName);
+        String nkKey = safeNkKey(type);
+        if (nkKey != null) candidateNames.add(nkKey);
+        if (candidateNames.isEmpty()) candidateNames.add("Unknown");
+        String normTarget = candidateNames.stream()
+                .map(this::normName).findFirst().orElse("unknown");
 
         // Pass 1: match by filename (normalized)
         List<File> candidates = new ArrayList<>();
@@ -845,7 +847,9 @@ public class CraftAdminMenu implements Listener {
             for (File f : files) {
                 if (!f.isFile()) continue;
                 String base = normName(f.getName().replaceFirst("\\.[^.]+$", ""));
-                if (base.equals(normTarget)) {
+                // Match against all candidate names (YAML name and namespacedKey)
+                boolean matched = candidateNames.stream().map(this::normName).anyMatch(base::equals);
+                if (matched) {
                     plugin.getLogger().info("[CraftAdmin] found by name: " + f.getAbsolutePath());
                     return f;
                 }
@@ -869,7 +873,7 @@ public class CraftAdminMenu implements Listener {
         }
 
         plugin.getLogger().warning("[CraftAdmin] type file not found for '" + typeName
-                + "' (normalized: '" + normTarget + "') in " + dataFolder.getAbsolutePath());
+                + "' / '" + nkKey + "' in " + dataFolder.getAbsolutePath());
         return null;
     }
 
