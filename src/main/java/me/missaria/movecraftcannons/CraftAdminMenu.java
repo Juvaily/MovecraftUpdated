@@ -1005,40 +1005,70 @@ public class CraftAdminMenu implements Listener {
     }
 
     /**
-     * Replace a YAML block-list section in raw file text.
-     * Only the indented lines that follow the key are replaced; everything before
-     * and after the section (including moveblocks/flyblocks) is preserved exactly.
-     * Items that start with '#' are double-quoted so YAML parsers don't treat them as comments.
+     * Replace a YAML block-list section using a line-by-line approach.
+     * Handles both LF and CRLF files. Preserves everything outside the replaced section
+     * (moveblocks, flyblocks, comments, all other keys) byte-for-byte.
+     * Items starting with '#' are double-quoted so YAML doesn't treat them as comments.
      */
     private String replaceYamlList(String content, String[] keyVariants,
                                    List<String> groupTags, Set<Material> blocks) {
         List<String> allItems = new ArrayList<>(groupTags);
         blocks.stream().map(m -> m.name().toLowerCase()).sorted().forEach(allItems::add);
 
-        for (String key : keyVariants) {
-            // Match the key line followed by all indented / blank lines belonging to it
-            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
-                    "(?m)^" + java.util.regex.Pattern.quote(key) + ":[ \\t]*\\n"
-                            + "((?:[ \\t][^\\n]*\\n|[ \\t]*\\n)*)");
-            java.util.regex.Matcher m = p.matcher(content);
-            if (!m.find()) continue;
+        // Detect and normalise line endings; we'll restore them at the end
+        boolean crlf = content.contains("\r\n");
+        String norm = crlf ? content.replace("\r\n", "\n") : content;
+        // Split keeping trailing empty string if file ends with newline
+        String[] lines = norm.split("\n", -1);
 
-            StringBuilder newBlock = new StringBuilder(key).append(":\n");
-            for (String item : allItems) {
-                // '#tag' must be quoted in YAML (# starts a comment otherwise)
-                String val = item.startsWith("#") ? "\"" + item + "\"" : item;
-                newBlock.append("    - ").append(val).append("\n");
+        for (String key : keyVariants) {
+            // Find the key line (must be at column 0, no leading whitespace)
+            int keyLine = -1;
+            for (int i = 0; i < lines.length; i++) {
+                String ln = lines[i];
+                if (ln.startsWith(key + ":") && (ln.length() == key.length() + 1
+                        || ln.charAt(key.length() + 1) == ' '
+                        || ln.charAt(key.length() + 1) == '\t')) {
+                    keyLine = i;
+                    break;
+                }
             }
-            return content.substring(0, m.start()) + newBlock + content.substring(m.end());
+            if (keyLine < 0) continue;
+
+            // Find the end of the list block: first subsequent line that is non-empty
+            // AND does not start with whitespace (= next top-level key or end of file)
+            int endLine = keyLine + 1;
+            while (endLine < lines.length) {
+                String ln = lines[endLine];
+                if (!ln.isEmpty() && ln.charAt(0) != ' ' && ln.charAt(0) != '\t') break;
+                endLine++;
+            }
+
+            // Build replacement (using LF; we restore CRLF below if needed)
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < keyLine; i++) sb.append(lines[i]).append('\n');
+            sb.append(key).append(":\n");
+            for (String item : allItems) {
+                String val = item.startsWith("#") ? "\"" + item + "\"" : item;
+                sb.append("    - ").append(val).append('\n');
+            }
+            for (int i = endLine; i < lines.length; i++) {
+                sb.append(lines[i]);
+                if (i < lines.length - 1) sb.append('\n');
+            }
+
+            String result = sb.toString();
+            return crlf ? result.replace("\n", "\r\n") : result;
         }
-        return content; // key not present — leave unchanged
+        return content; // key not found — leave unchanged
     }
 
     /** Replace a single YAML scalar value in raw file text (first matching key variant wins). */
     private String replaceYamlScalar(String content, String[] keyVariants, String value) {
+        // (?m) $ matches before \r?\n, so this handles both LF and CRLF
         for (String key : keyVariants) {
             java.util.regex.Pattern p = java.util.regex.Pattern.compile(
-                    "(?m)^" + java.util.regex.Pattern.quote(key) + ":[ \\t]*[^\\n]*$");
+                    "(?m)^" + java.util.regex.Pattern.quote(key) + ":[ \\t]*[^\\r\\n]*$");
             java.util.regex.Matcher m = p.matcher(content);
             if (!m.find()) continue;
             return content.substring(0, m.start()) + key + ": " + value + content.substring(m.end());
