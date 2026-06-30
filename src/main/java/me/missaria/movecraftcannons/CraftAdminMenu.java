@@ -1112,14 +1112,6 @@ public class CraftAdminMenu implements Listener {
         }
     }
 
-    /** Write a Set<Material> (plus original group tags) to a YAML config. */
-    private void writeBlockSet(YamlConfiguration yaml, Set<Material> blocks, List<String> groupTags, String keyCC, String keySC) {
-        List<String> names = new ArrayList<>(groupTags);
-        blocks.stream().map(m -> m.name().toLowerCase()).sorted().forEach(names::add);
-        if (names.isEmpty()) return;
-        yaml.set(resolveKeyPair(yaml, keySC, keyCC), names);
-    }
-
     // ── File finding ───────────────────────────────────────────────────────────
     //
     //  Movecraft stores types in plugins/Movecraft/types/*.craft
