@@ -33,6 +33,7 @@ import org.jetbrains.annotations.NotNull;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.lang.reflect.Field;
 import java.util.*;
 import java.util.ArrayList;
@@ -416,23 +417,36 @@ public class CraftAdminMenu implements Listener {
                                    Player player, UUID uid, Tab tab) {
         int offset = blockOffset.getOrDefault(uid, 0);
 
-        List<Material> list = new ArrayList<>(getWorkingBlocks(uid, tab));
-        list.sort(Comparator.comparing(Enum::name));
+        // Unified list: group tags first (#planks, #wool...), then sorted individual blocks
+        List<Object> allItems = new ArrayList<>(getGroupTags(uid, tab));
+        List<Material> mats = new ArrayList<>(getWorkingBlocks(uid, tab));
+        mats.sort(Comparator.comparing(Enum::name));
+        allItems.addAll(mats);
 
         ItemStack bg = bgItem();
         for (int i = GRID_START; i < GRID_START + GRID_SIZE; i++) inv.setItem(i, bg);
 
-        for (int i = 0; i < GRID_SIZE && (offset + i) < list.size(); i++) {
-            Material mat = list.get(offset + i);
+        for (int i = 0; i < GRID_SIZE && (offset + i) < allItems.size(); i++) {
+            Object entry = allItems.get(offset + i);
             int slot = GRID_START + i;
-            setSlot(inv, a, s, slot, blockItem(mat), p -> {
-                UUID puid = p.getUniqueId();
-                removeBlock(puid, tab, mat);
-                int off = blockOffset.getOrDefault(puid, 0);
-                int remaining = getWorkingBlocks(puid, tab).size();
-                blockOffset.put(puid, Math.min(off, Math.max(0, (remaining / GRID_SIZE) * GRID_SIZE)));
-                openMenu(p);
-            }, null);
+            if (entry instanceof String tag) {
+                setSlot(inv, a, s, slot, groupTagItem(tag), p -> {
+                    removeGroupTag(p.getUniqueId(), tab, tag);
+                    int off = blockOffset.getOrDefault(p.getUniqueId(), 0);
+                    int rem = getGroupTags(p.getUniqueId(), tab).size() + getWorkingBlocks(p.getUniqueId(), tab).size();
+                    blockOffset.put(p.getUniqueId(), Math.min(off, Math.max(0, (rem / GRID_SIZE) * GRID_SIZE)));
+                    openMenu(p);
+                }, null);
+            } else if (entry instanceof Material mat) {
+                setSlot(inv, a, s, slot, blockItem(mat), p -> {
+                    UUID puid = p.getUniqueId();
+                    removeBlock(puid, tab, mat);
+                    int off = blockOffset.getOrDefault(puid, 0);
+                    int rem = getGroupTags(puid, tab).size() + getWorkingBlocks(puid, tab).size();
+                    blockOffset.put(puid, Math.min(off, Math.max(0, (rem / GRID_SIZE) * GRID_SIZE)));
+                    openMenu(p);
+                }, null);
+            }
         }
 
         // Row 5 (slots 45-53)
@@ -442,14 +456,23 @@ public class CraftAdminMenu implements Listener {
             setSlot(inv, a, s, 45, navItem("◀ Назад"),
                     p -> { blockOffset.put(p.getUniqueId(), offset - GRID_SIZE); openMenu(p); }, null);
 
+        // Add group tag button (slot 46)
+        setSlot(inv, a, s, 46, addGroupTagButton(), p ->
+                openAnvilInput(p, "#тег_группы", "#", str -> {
+                    String tag = str.trim();
+                    if (!tag.isEmpty()) addGroupTag(p.getUniqueId(), tab, tag);
+                }), null);
+
         // Page info (slot 49)
-        int pages = Math.max(1, (int) Math.ceil((double) list.size() / GRID_SIZE));
+        int pages = Math.max(1, (int) Math.ceil((double) allItems.size() / GRID_SIZE));
         ItemStack info = new ItemStack(Material.PAPER);
         ItemMeta im = info.getItemMeta();
-        im.displayName(Component.text("Блоков: " + list.size())
+        im.displayName(Component.text("Записей: " + allItems.size())
                 .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
         im.lore(List.of(
                 Component.text("Стр. " + (offset / GRID_SIZE + 1) + "/" + pages)
+                        .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false),
+                Component.text("Золото = группа (#tag), блок = материал")
                         .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false),
                 Component.text("Перетащи блок в сетку или ЛКМ из инвентаря")
                         .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)
@@ -457,9 +480,45 @@ public class CraftAdminMenu implements Listener {
         info.setItemMeta(im);
         inv.setItem(49, info);
 
-        if (offset + GRID_SIZE < list.size())
+        if (offset + GRID_SIZE < allItems.size())
             setSlot(inv, a, s, 53, navItem("Далее ▶"),
                     p -> { blockOffset.put(p.getUniqueId(), offset + GRID_SIZE); openMenu(p); }, null);
+    }
+
+    private ItemStack groupTagItem(String tag) {
+        ItemStack is = new ItemStack(Material.GOLD_NUGGET);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text(tag).color(NamedTextColor.GOLD).decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(
+                Component.text("Группа блоков Movecraft").color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false),
+                Component.text("Нажмите — удалить").color(NamedTextColor.RED).decoration(TextDecoration.ITALIC, false)
+        ));
+        is.setItemMeta(m);
+        return is;
+    }
+
+    private ItemStack addGroupTagButton() {
+        ItemStack is = new ItemStack(Material.NETHER_STAR);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text("+ Добавить группу (#tag)").color(NamedTextColor.YELLOW).decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(Component.text("Например: #planks, #wool, #logs").color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
+        is.setItemMeta(m);
+        return is;
+    }
+
+    private void addGroupTag(UUID uid, Tab tab, String tag) {
+        if (!tag.startsWith("#")) tag = "#" + tag;
+        groupTagsCache.computeIfAbsent(uid, k -> new LinkedHashMap<>())
+                .computeIfAbsent(tab, k -> new ArrayList<>())
+                .add(tag);
+    }
+
+    private void removeGroupTag(UUID uid, Tab tab, String tag) {
+        Map<Tab, List<String>> tagsMap = groupTagsCache.get(uid);
+        if (tagsMap != null) {
+            List<String> list = tagsMap.get(tab);
+            if (list != null) list.remove(tag);
+        }
     }
 
     // ── Settings tab content ───────────────────────────────────────────────────
@@ -713,27 +772,27 @@ public class CraftAdminMenu implements Listener {
     //  In file-only mode: initialised from YAML; changes go to workingBlocks only
     //  until Save is clicked.
 
-    /** Populate workingBlocks (and groupTagsCache) from CraftType (preferred) or YAML file. */
+    /** Populate workingBlocks (and groupTagsCache) always from the file on disk.
+     *  Using the CraftType's expanded materialSet would include all blocks covered
+     *  by group tags (#planks → oak_planks, etc.), polluting the saved output.
+     *  If no file is available, fall back to CraftType (shouldn't occur in practice). */
     private void loadWorkingBlocks(UUID uid, CraftType type, File file) {
         Map<Tab, Set<Material>> wb   = new LinkedHashMap<>();
         Map<Tab, List<String>>  tags = new LinkedHashMap<>();
         YamlConfiguration yaml = (file != null && file.exists())
                 ? YamlConfiguration.loadConfiguration(file) : null;
 
-        if (type != null) {
-            for (Tab t : new Tab[]{Tab.ALLOWED, Tab.FORBIDDEN, Tab.PASSTHROUGH}) {
-                wb.put(t, getBlockSetFromType(type, t));
-            }
-        } else if (yaml != null) {
+        if (yaml != null) {
             wb.put(Tab.ALLOWED,     parseYamlBlockSet(yaml, "allowedBlocks",     "allowed_blocks"));
             wb.put(Tab.FORBIDDEN,   parseYamlBlockSet(yaml, "forbiddenBlocks",   "forbidden_blocks"));
             wb.put(Tab.PASSTHROUGH, parseYamlBlockSet(yaml, "passthroughBlocks", "passthrough_blocks"));
-        }
-
-        if (yaml != null) {
             tags.put(Tab.ALLOWED,     parseYamlGroupTags(yaml, "allowedBlocks",     "allowed_blocks"));
             tags.put(Tab.FORBIDDEN,   parseYamlGroupTags(yaml, "forbiddenBlocks",   "forbidden_blocks"));
             tags.put(Tab.PASSTHROUGH, parseYamlGroupTags(yaml, "passthroughBlocks", "passthrough_blocks"));
+        } else if (type != null) {
+            for (Tab t : new Tab[]{Tab.ALLOWED, Tab.FORBIDDEN, Tab.PASSTHROUGH}) {
+                wb.put(t, getBlockSetFromType(type, t));
+            }
         }
 
         workingBlocks.put(uid, wb);
@@ -880,6 +939,13 @@ public class CraftAdminMenu implements Listener {
     }
 
     // ── Save to disk ───────────────────────────────────────────────────────────
+    //
+    //  We do NOT use YamlConfiguration.save() for the whole file: Bukkit cannot
+    //  serialise YAML list-keys like  ["#wool", "#leaves"]:  used by moveblocks/
+    //  flyblocks, so it silently drops those sections.  Instead we read the file
+    //  as plain text and surgically replace only the three block-list sections
+    //  (allowedBlocks / forbiddenBlocks / passthroughBlocks) and numeric scalars.
+    //  Everything else (moveblocks, flyblocks, comments…) is left untouched.
 
     private void saveChanges(Player player) {
         UUID uid = player.getUniqueId();
@@ -891,40 +957,101 @@ public class CraftAdminMenu implements Listener {
             return;
         }
 
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+        String content;
+        try {
+            content = new String(Files.readAllBytes(file.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            player.sendMessage(Lang.msg("msg.admin.save_error", player, NamedTextColor.RED, e.getMessage()));
+            return;
+        }
 
-        // Write block sets from workingBlocks (unified source of truth), preserving group tags
-        writeBlockSet(yaml, getWorkingBlocks(uid, Tab.ALLOWED),     getGroupTags(uid, Tab.ALLOWED),     "allowedBlocks",     "allowed_blocks");
-        writeBlockSet(yaml, getWorkingBlocks(uid, Tab.FORBIDDEN),   getGroupTags(uid, Tab.FORBIDDEN),   "forbiddenBlocks",   "forbidden_blocks");
-        writeBlockSet(yaml, getWorkingBlocks(uid, Tab.PASSTHROUGH), getGroupTags(uid, Tab.PASSTHROUGH), "passthroughBlocks", "passthrough_blocks");
+        // Replace only the block-list sections (preserves moveblocks/flyblocks/etc.)
+        content = replaceYamlList(content, new String[]{"allowedBlocks",     "allowed_blocks"},
+                getGroupTags(uid, Tab.ALLOWED),     getWorkingBlocks(uid, Tab.ALLOWED));
+        content = replaceYamlList(content, new String[]{"forbiddenBlocks",   "forbidden_blocks"},
+                getGroupTags(uid, Tab.FORBIDDEN),   getWorkingBlocks(uid, Tab.FORBIDDEN));
+        content = replaceYamlList(content, new String[]{"passthroughBlocks", "passthrough_blocks"},
+                getGroupTags(uid, Tab.PASSTHROUGH), getWorkingBlocks(uid, Tab.PASSTHROUGH));
 
-        // Write numeric properties (only if CraftType is available)
+        // Replace numeric scalars (only when CraftType is available)
         if (type != null) {
             for (IntProp p : IntProp.values()) {
                 int v = safeInt(type, p.key);
-                if (v >= 0) yaml.set(resolveKey(yaml, p.yamlKey), v);
+                if (v >= 0) content = replaceYamlScalar(content,
+                        new String[]{toCamel(p.yamlKey), p.yamlKey}, String.valueOf(v));
             }
             for (DoubleProp p : DoubleProp.values()) {
                 double v = safeDouble(type, p.key);
-                if (v >= 0) yaml.set(resolveKey(yaml, p.yamlKey), v);
+                if (v < 0) continue;
+                // Write as integer if whole number (matches original file style)
+                String vs = (v == Math.floor(v) && v < 1e9) ? String.valueOf((long) v)
+                        : String.format("%.1f", v);
+                content = replaceYamlScalar(content,
+                        new String[]{toCamel(p.yamlKey), p.yamlKey}, vs);
             }
         }
 
-        try {
-            // Bukkit YAML writes list items without indentation ("- item").
-            // Movecraft .craft files use 4-space indent ("    - item"), so fix before writing.
-            String content = yaml.saveToString().replaceAll("(?m)^ *- ", "    - ");
-            try (FileWriter fw = new FileWriter(file, java.nio.charset.StandardCharsets.UTF_8)) {
-                fw.write(content);
-            }
-            player.sendMessage(Lang.msg("msg.admin.saved", player, NamedTextColor.GREEN, file.getName()));
-            if (type == null) {
+        final File fFile = file;
+        try (FileWriter fw = new FileWriter(fFile, java.nio.charset.StandardCharsets.UTF_8)) {
+            fw.write(content);
+            player.sendMessage(Lang.msg("msg.admin.saved", player, NamedTextColor.GREEN, fFile.getName()));
+            if (type == null)
                 player.sendMessage(Lang.msg("msg.admin.file_saved_reload", player, NamedTextColor.YELLOW));
-            }
         } catch (IOException e) {
             player.sendMessage(Lang.msg("msg.admin.save_error", player, NamedTextColor.RED, e.getMessage()));
         }
-        if (file != null) targetFile.put(uid, file);
+        targetFile.put(uid, fFile);
+    }
+
+    /**
+     * Replace a YAML block-list section in raw file text.
+     * Only the indented lines that follow the key are replaced; everything before
+     * and after the section (including moveblocks/flyblocks) is preserved exactly.
+     * Items that start with '#' are double-quoted so YAML parsers don't treat them as comments.
+     */
+    private String replaceYamlList(String content, String[] keyVariants,
+                                   List<String> groupTags, Set<Material> blocks) {
+        List<String> allItems = new ArrayList<>(groupTags);
+        blocks.stream().map(m -> m.name().toLowerCase()).sorted().forEach(allItems::add);
+
+        for (String key : keyVariants) {
+            // Match the key line followed by all indented / blank lines belonging to it
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?m)^" + java.util.regex.Pattern.quote(key) + ":[ \\t]*\\n"
+                            + "((?:[ \\t][^\\n]*\\n|[ \\t]*\\n)*)");
+            java.util.regex.Matcher m = p.matcher(content);
+            if (!m.find()) continue;
+
+            StringBuilder newBlock = new StringBuilder(key).append(":\n");
+            for (String item : allItems) {
+                // '#tag' must be quoted in YAML (# starts a comment otherwise)
+                String val = item.startsWith("#") ? "\"" + item + "\"" : item;
+                newBlock.append("    - ").append(val).append("\n");
+            }
+            return content.substring(0, m.start()) + newBlock + content.substring(m.end());
+        }
+        return content; // key not present — leave unchanged
+    }
+
+    /** Replace a single YAML scalar value in raw file text (first matching key variant wins). */
+    private String replaceYamlScalar(String content, String[] keyVariants, String value) {
+        for (String key : keyVariants) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?m)^" + java.util.regex.Pattern.quote(key) + ":[ \\t]*[^\\n]*$");
+            java.util.regex.Matcher m = p.matcher(content);
+            if (!m.find()) continue;
+            return content.substring(0, m.start()) + key + ": " + value + content.substring(m.end());
+        }
+        return content;
+    }
+
+    /** Write a Set<Material> (plus original group tags) to a YAML config. */
+    private void writeBlockSet(YamlConfiguration yaml, Set<Material> blocks, List<String> groupTags, String keyCC, String keySC) {
+        List<String> names = new ArrayList<>(groupTags);
+        blocks.stream().map(m -> m.name().toLowerCase()).sorted().forEach(names::add);
+        if (names.isEmpty()) return;
+        yaml.set(resolveKeyPair(yaml, keySC, keyCC), names);
     }
 
     // ── Reload from disk ──────────────────────────────────────────────────────
