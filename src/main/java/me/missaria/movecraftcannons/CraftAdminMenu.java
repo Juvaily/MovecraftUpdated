@@ -6,6 +6,7 @@ import net.countercraft.movecraft.craft.type.CraftType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -14,11 +15,16 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryType;
+import org.bukkit.event.inventory.PrepareAnvilEvent;
+import org.bukkit.inventory.AnvilInventory;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
@@ -37,8 +43,12 @@ public class CraftAdminMenu implements Listener {
 
     private enum Tab { ALLOWED, FORBIDDEN, PASSTHROUGH, SETTINGS }
 
-    // Retrieve a private static NamespacedKey constant from CraftType via reflection.
-    // Falls back to a constructed key using lowercase field name if reflection fails.
+    // ── Private CraftType constant retrieval ───────────────────────────────────
+    //
+    //  CraftType stores properties in Map<NamespacedKey, V> maps.
+    //  Public constants: ALLOWED_BLOCKS, FORBIDDEN_BLOCKS, PASSTHROUGH_BLOCKS, MIN_SIZE, MAX_SIZE, NAME.
+    //  All speed/cooldown/height constants are private → accessed via reflection.
+
     private static NamespacedKey craftKey(String fieldName) {
         try {
             Field f = CraftType.class.getDeclaredField(fieldName);
@@ -49,51 +59,57 @@ public class CraftAdminMenu implements Listener {
         }
     }
 
-    // ── Property descriptors for Settings tab ─────────────────────────────────
-    //
-    //  Some CraftType constants are private; we retrieve them via reflection.
-    //  Public ones are referenced directly (ALLOWED_BLOCKS, MIN_SIZE, MAX_SIZE, NAME).
+    // ── Property descriptors ───────────────────────────────────────────────────
 
     private enum IntProp {
-        MIN_SIZE   ("Мин. размер",          "min_size",                 Material.CHEST,            CraftType.MIN_SIZE),
-        MAX_SIZE   ("Макс. размер",         "max_size",                 Material.ENDER_CHEST,      CraftType.MAX_SIZE),
-        TICK_COOL  ("Тик ручн. (Manual)",   "tick_cooldown",            Material.CLOCK,            craftKey("TICK_COOLDOWN")),
-        CRUISE_COOL("Тик круиза",           "cruise_tick_cooldown",     Material.POWERED_RAIL,     craftKey("CRUISE_TICK_COOLDOWN")),
-        CRUISE_SKIP("Прыжок круиза",        "cruise_skip_blocks",       Material.RAIL,             craftKey("CRUISE_SKIP_BLOCKS")),
-        VERT_COOL  ("Тик верт. круиза",     "vert_cruise_tick_cooldown",Material.LADDER,           craftKey("VERT_CRUISE_TICK_COOLDOWN")),
-        VERT_SKIP  ("Прыжок верт. круиза",  "vert_cruise_skip_blocks",  Material.VINE,             craftKey("VERT_CRUISE_SKIP_BLOCKS")),
-        MIN_HEIGHT ("Мин. высота",          "min_height_limit",         Material.POINTED_DRIPSTONE,craftKey("MIN_HEIGHT_LIMIT")),
-        MAX_HEIGHT ("Макс. высота",         "max_height_limit",         Material.SCAFFOLDING,      craftKey("MAX_HEIGHT_LIMIT"));
+        MIN_SIZE   ("Мин. размер",         "min_size",               Material.CHEST,             CraftType.MIN_SIZE),
+        MAX_SIZE   ("Макс. размер",        "max_size",               Material.ENDER_CHEST,       CraftType.MAX_SIZE),
+        TICK_COOL  ("Тик ручн.",           "tick_cooldown",          Material.CLOCK,             craftKey("TICK_COOLDOWN")),
+        CRUISE_COOL("Тик круиза",          "cruise_tick_cooldown",   Material.POWERED_RAIL,      craftKey("CRUISE_TICK_COOLDOWN")),
+        CRUISE_SKIP("Прыжок круиза",       "cruise_skip_blocks",     Material.RAIL,              craftKey("CRUISE_SKIP_BLOCKS")),
+        VERT_COOL  ("Тик верт.",           "vert_cruise_tick_cooldown", Material.LADDER,         craftKey("VERT_CRUISE_TICK_COOLDOWN")),
+        VERT_SKIP  ("Прыжок верт.",        "vert_cruise_skip_blocks",   Material.VINE,           craftKey("VERT_CRUISE_SKIP_BLOCKS")),
+        MIN_HEIGHT ("Мин. высота",         "min_height_limit",       Material.POINTED_DRIPSTONE, craftKey("MIN_HEIGHT_LIMIT")),
+        MAX_HEIGHT ("Макс. высота",        "max_height_limit",       Material.SCAFFOLDING,       craftKey("MAX_HEIGHT_LIMIT"));
 
         final String label; final String yamlKey; final Material icon; final NamespacedKey key;
         IntProp(String l, String y, Material i, NamespacedKey k) { label=l; yamlKey=y; icon=i; key=k; }
     }
 
-    // Speeds may be Double or Float properties depending on Movecraft build;
-    // safeDouble() tries both getDoubleProperty and getFloatProperty.
+    // Speeds may be Float or Double depending on Movecraft build; safeDouble() tries both.
     private enum DoubleProp {
-        CRUISE_SPEED("Скорость круиза",  "cruise_speed",      Material.CYAN_DYE, craftKey("CRUISE_SPEED")),
-        VERT_SPEED  ("Верт. скорость",   "vert_cruise_speed", Material.FEATHER,  craftKey("VERT_CRUISE_SPEED")),
-        SPEED       ("Скорость DC",      "speed",             Material.SUGAR,    craftKey("SPEED"));
+        CRUISE_SPEED("Скорость круиза", "cruise_speed",      Material.CYAN_DYE, craftKey("CRUISE_SPEED")),
+        VERT_SPEED  ("Верт. скорость",  "vert_cruise_speed", Material.FEATHER,  craftKey("VERT_CRUISE_SPEED")),
+        SPEED       ("Скорость DC",     "speed",             Material.SUGAR,    craftKey("SPEED"));
 
         final String label; final String yamlKey; final Material icon; final NamespacedKey key;
         DoubleProp(String l, String y, Material i, NamespacedKey k) { label=l; yamlKey=y; icon=i; key=k; }
     }
 
-    // Settings grid layout (rows 1-5, slots 9-53)
-    private static final int[] INT_SLOTS    = {9, 11, 13, 15, 18, 20, 22, 27, 29};
-    private static final int[] DOUBLE_SLOTS = {37, 39, 41};
+    // Settings layout: 3 params per row ([-][val][+] per param), 4 rows = 12 params
+    // Groups of 3 slots: [slot-1, slot, slot+1] per param
+    private static final int[] PARAM_VAL_SLOTS = {
+        10, 13, 16,   // row 1: slots 9-17 → val at 10,13,16
+        19, 22, 25,   // row 2
+        28, 31, 34,   // row 3
+        37, 40, 43    // row 4
+    };
+    private static final IntProp[]    INT_PROPS    = IntProp.values();
+    private static final DoubleProp[] DOUBLE_PROPS = DoubleProp.values();
+    // Total: 9 int + 3 double = 12 params, fits PARAM_VAL_SLOTS exactly
 
     // Block grid: rows 1-4 (slots 9-44), 36 slots
     private static final int GRID_START = 9;
     private static final int GRID_SIZE  = 36;
 
     private final MovecraftCannonsPlugin plugin;
-    private final Map<UUID, Tab>                currentTab   = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer>            blockOffset  = new ConcurrentHashMap<>();
-    private final Map<UUID, CraftType>          targetType   = new ConcurrentHashMap<>();
-    private final Map<UUID, Consumer<Player>[]> menuActions  = new ConcurrentHashMap<>();
-    private final Map<UUID, Consumer<String>>   pendingInput = new ConcurrentHashMap<>();
+    private final Map<UUID, Tab>                currentTab    = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer>            blockOffset   = new ConcurrentHashMap<>();
+    private final Map<UUID, CraftType>          targetType    = new ConcurrentHashMap<>();
+    private final Map<UUID, Consumer<Player>[]> menuActions   = new ConcurrentHashMap<>();
+    private final Map<UUID, Consumer<Player>[]> shiftActions  = new ConcurrentHashMap<>();
+    // Anvil input state: player → callback for the typed string
+    private final Map<UUID, Consumer<String>>   pendingAnvil  = new ConcurrentHashMap<>();
 
     public CraftAdminMenu(MovecraftCannonsPlugin plugin) { this.plugin = plugin; }
 
@@ -166,26 +182,28 @@ public class CraftAdminMenu implements Listener {
         holder.setInventory(inv);
 
         Consumer<Player>[] actions = new Consumer[54];
-        buildTabRow(inv, actions, player, tab);
+        Consumer<Player>[] shifts  = new Consumer[54];
+        buildTabRow(inv, actions, shifts, player, tab);
 
-        if (tab == Tab.SETTINGS) buildSettingsContent(inv, actions, player, type);
-        else                     buildBlockContent(inv, actions, player, type, tab);
+        if (tab == Tab.SETTINGS) buildSettingsContent(inv, actions, shifts, player, type);
+        else                     buildBlockContent(inv, actions, shifts, player, type, tab);
 
         menuActions.put(uid, actions);
+        shiftActions.put(uid, shifts);
         player.openInventory(inv);
     }
 
-    // ── Row 0: tabs ────────────────────────────────────────────────────────────
+    // ── Row 0: tabs + save ─────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
-    private void buildTabRow(Inventory inv, Consumer<Player>[] actions, Player player, Tab active) {
-        setSlot(inv, actions, 0, tabItem("✅ Разрешённые",  Material.LIME_STAINED_GLASS_PANE, active == Tab.ALLOWED),     p -> switchTab(p, Tab.ALLOWED));
-        setSlot(inv, actions, 1, tabItem("🚫 Запрещённые",  Material.RED_STAINED_GLASS_PANE,  active == Tab.FORBIDDEN),   p -> switchTab(p, Tab.FORBIDDEN));
-        setSlot(inv, actions, 2, tabItem("🔵 Сквозные",     Material.CYAN_STAINED_GLASS_PANE,  active == Tab.PASSTHROUGH), p -> switchTab(p, Tab.PASSTHROUGH));
-        setSlot(inv, actions, 3, tabItem("⚙ Параметры",    Material.COMPARATOR,               active == Tab.SETTINGS),    p -> switchTab(p, Tab.SETTINGS));
+    private void buildTabRow(Inventory inv, Consumer<Player>[] a, Consumer<Player>[] s, Player player, Tab active) {
+        setSlot(inv, a, s, 0, tabItem("✅ Разрешённые", Material.LIME_STAINED_GLASS_PANE, active == Tab.ALLOWED),     p -> switchTab(p, Tab.ALLOWED),     null);
+        setSlot(inv, a, s, 1, tabItem("🚫 Запрещённые", Material.RED_STAINED_GLASS_PANE,  active == Tab.FORBIDDEN),   p -> switchTab(p, Tab.FORBIDDEN),   null);
+        setSlot(inv, a, s, 2, tabItem("🔵 Сквозные",    Material.CYAN_STAINED_GLASS_PANE,  active == Tab.PASSTHROUGH), p -> switchTab(p, Tab.PASSTHROUGH), null);
+        setSlot(inv, a, s, 3, tabItem("⚙ Параметры",   Material.COMPARATOR,               active == Tab.SETTINGS),    p -> switchTab(p, Tab.SETTINGS),    null);
         ItemStack bg = bgItem();
         for (int i = 4; i <= 7; i++) inv.setItem(i, bg);
-        setSlot(inv, actions, 8, saveItem(), p -> { saveChanges(p); openMenu(p); });
+        setSlot(inv, a, s, 8, saveItem(), p -> { saveChanges(p); openMenu(p); }, null);
     }
 
     private void switchTab(Player player, Tab tab) {
@@ -194,10 +212,11 @@ public class CraftAdminMenu implements Listener {
         openMenu(player);
     }
 
-    // ── Block tab content (rows 1-5) ───────────────────────────────────────────
+    // ── Block tab content ──────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
-    private void buildBlockContent(Inventory inv, Consumer<Player>[] actions, Player player, CraftType type, Tab tab) {
+    private void buildBlockContent(Inventory inv, Consumer<Player>[] a, Consumer<Player>[] s,
+                                   Player player, CraftType type, Tab tab) {
         UUID uid = player.getUniqueId();
         int offset = blockOffset.getOrDefault(uid, 0);
 
@@ -210,121 +229,286 @@ public class CraftAdminMenu implements Listener {
         for (int i = 0; i < GRID_SIZE && (offset + i) < list.size(); i++) {
             Material mat = list.get(offset + i);
             int slot = GRID_START + i;
-            setSlot(inv, actions, slot, blockItem(mat), p -> {
+            setSlot(inv, a, s, slot, blockItem(mat), p -> {
                 removeBlock(type, tab, mat);
                 int off = blockOffset.getOrDefault(p.getUniqueId(), 0);
                 int remaining = getBlockSet(type, tab).size();
                 blockOffset.put(p.getUniqueId(), Math.min(off, Math.max(0, (remaining / GRID_SIZE) * GRID_SIZE)));
                 openMenu(p);
-            });
+            }, null);
         }
 
+        // Row 5 (slots 45-53)
         for (int i = 45; i <= 53; i++) inv.setItem(i, bg);
 
         if (offset > 0)
-            setSlot(inv, actions, 45, navItem("◀ Назад"),
-                    p -> { blockOffset.put(p.getUniqueId(), offset - GRID_SIZE); openMenu(p); });
+            setSlot(inv, a, s, 45, navItem("◀ Назад"),
+                    p -> { blockOffset.put(p.getUniqueId(), offset - GRID_SIZE); openMenu(p); }, null);
 
-        // Page count info (slot 49, no action)
+        // Page info (slot 49)
         int pages = Math.max(1, (int) Math.ceil((double) list.size() / GRID_SIZE));
         ItemStack info = new ItemStack(Material.PAPER);
         ItemMeta im = info.getItemMeta();
         im.displayName(Component.text("Блоков: " + list.size())
                 .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
-        im.lore(List.of(Component.text("Стр. " + (offset / GRID_SIZE + 1) + "/" + pages)
-                .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)));
+        im.lore(List.of(
+                Component.text("Стр. " + (offset / GRID_SIZE + 1) + "/" + pages)
+                        .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false),
+                Component.text("Перетащи блок в сетку или ЛКМ из инвентаря")
+                        .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)
+        ));
         info.setItemMeta(im);
         inv.setItem(49, info);
 
-        setSlot(inv, actions, 48, addBlockItem(), p -> {
-            ItemStack hand = p.getInventory().getItemInMainHand();
-            if (hand.getType().isAir() || !hand.getType().isBlock()) {
-                p.sendMessage(Lang.msg("msg.admin.not_a_block", p, NamedTextColor.RED));
-                openMenu(p); return;
-            }
-            addBlock(type, tab, hand.getType());
-            p.sendMessage(Lang.msg("msg.admin.block_added", p, NamedTextColor.GREEN, hand.getType().name().toLowerCase()));
-            openMenu(p);
-        });
-
         if (offset + GRID_SIZE < list.size())
-            setSlot(inv, actions, 53, navItem("Далее ▶"),
-                    p -> { blockOffset.put(p.getUniqueId(), offset + GRID_SIZE); openMenu(p); });
+            setSlot(inv, a, s, 53, navItem("Далее ▶"),
+                    p -> { blockOffset.put(p.getUniqueId(), offset + GRID_SIZE); openMenu(p); }, null);
     }
 
-    // ── Settings tab content (rows 1-5) ───────────────────────────────────────
+    // ── Settings tab content ───────────────────────────────────────────────────
+    //
+    //  Layout: 3 params per row, each param occupies 3 slots: [decr] [val] [incr]
+    //  Regular click: small step (±1 or ±0.1)
+    //  Shift-click:   large step (±10 or ±1.0)
+    //  Click on [val]: opens anvil for exact input
 
     @SuppressWarnings("unchecked")
-    private void buildSettingsContent(Inventory inv, Consumer<Player>[] actions, Player player, CraftType type) {
+    private void buildSettingsContent(Inventory inv, Consumer<Player>[] a, Consumer<Player>[] s,
+                                      Player player, CraftType type) {
         ItemStack bg = bgItem();
         for (int i = 9; i < 54; i++) inv.setItem(i, bg);
 
-        IntProp[] ips = IntProp.values();
-        for (int i = 0; i < ips.length && i < INT_SLOTS.length; i++) {
-            IntProp p = ips[i];
+        // 9 int props
+        for (int i = 0; i < INT_PROPS.length && i < PARAM_VAL_SLOTS.length; i++) {
+            IntProp p = INT_PROPS[i];
             int val = safeInt(type, p.key);
-            setSlot(inv, actions, INT_SLOTS[i], intItem(p.label, val, p.icon),
-                    pl -> promptInt(pl, p.label, v -> { modifyInt(type, p.key, v); openMenu(pl); }));
+            int valSlot = PARAM_VAL_SLOTS[i];
+            int decrSlot = valSlot - 1;
+            int incrSlot = valSlot + 1;
+
+            setSlot(inv, a, s, decrSlot, stepItem("◀ −1", Material.RED_DYE),
+                    pl -> { modifyInt(type, p.key, safeInt(type, p.key) - 1); openMenu(pl); },
+                    pl -> { modifyInt(type, p.key, safeInt(type, p.key) - 10); openMenu(pl); });
+            setSlot(inv, a, s, valSlot, intItem(p.label, val, p.icon),
+                    pl -> openAnvilInput(pl, p.label, String.valueOf(Math.max(0, safeInt(type, p.key))),
+                            str -> { try { modifyInt(type, p.key, Integer.parseInt(str)); } catch (NumberFormatException ignored) {} }), null);
+            setSlot(inv, a, s, incrSlot, stepItem("+1 ▶", Material.LIME_DYE),
+                    pl -> { modifyInt(type, p.key, safeInt(type, p.key) + 1); openMenu(pl); },
+                    pl -> { modifyInt(type, p.key, safeInt(type, p.key) + 10); openMenu(pl); });
         }
 
-        DoubleProp[] dps = DoubleProp.values();
-        for (int i = 0; i < dps.length && i < DOUBLE_SLOTS.length; i++) {
-            DoubleProp p = dps[i];
+        // 3 double props (after the 9 int props)
+        for (int i = 0; i < DOUBLE_PROPS.length; i++) {
+            DoubleProp p = DOUBLE_PROPS[i];
             double val = safeDouble(type, p.key);
-            setSlot(inv, actions, DOUBLE_SLOTS[i], doubleItem(p.label, val, p.icon),
-                    pl -> promptDouble(pl, p.label, v -> { modifyDoubleOrFloat(type, p.key, v); openMenu(pl); }));
+            int valSlot = PARAM_VAL_SLOTS[INT_PROPS.length + i];
+            int decrSlot = valSlot - 1;
+            int incrSlot = valSlot + 1;
+
+            setSlot(inv, a, s, decrSlot, stepItem("◀ −0.1", Material.RED_DYE),
+                    pl -> { modifyDoubleOrFloat(type, p.key, round(safeDouble(type, p.key) - 0.1)); openMenu(pl); },
+                    pl -> { modifyDoubleOrFloat(type, p.key, round(safeDouble(type, p.key) - 1.0)); openMenu(pl); });
+            setSlot(inv, a, s, valSlot, doubleItem(p.label, val, p.icon),
+                    pl -> openAnvilInput(pl, p.label,
+                            val < 0 ? "0" : String.format("%.1f", val).replace(',', '.'),
+                            str -> { try { modifyDoubleOrFloat(type, p.key, Double.parseDouble(str.replace(',', '.'))); } catch (NumberFormatException ignored) {} }), null);
+            setSlot(inv, a, s, incrSlot, stepItem("+0.1 ▶", Material.LIME_DYE),
+                    pl -> { modifyDoubleOrFloat(type, p.key, round(safeDouble(type, p.key) + 0.1)); openMenu(pl); },
+                    pl -> { modifyDoubleOrFloat(type, p.key, round(safeDouble(type, p.key) + 1.0)); openMenu(pl); });
         }
     }
 
-    // ── Chat prompt for number input ───────────────────────────────────────────
+    private double round(double v) { return Math.round(v * 10.0) / 10.0; }
 
-    private void promptInt(Player player, String name, Consumer<Integer> callback) {
-        player.sendMessage(Lang.msg("msg.admin.prompt_int", player, NamedTextColor.YELLOW, name));
-        pendingInput.put(player.getUniqueId(), input -> {
-            if (isCancel(input)) { openMenu(player); return; }
-            try { callback.accept(Integer.parseInt(input.trim())); }
-            catch (NumberFormatException e) {
-                player.sendMessage(Lang.msg("msg.admin.bad_number", player, NamedTextColor.RED, input));
+    // ── Anvil input ────────────────────────────────────────────────────────────
+    //
+    //  Opens a virtual anvil; the player types a value in the rename field and
+    //  takes the result item (slot 2) to confirm. Closing without confirming
+    //  reopens the admin menu.
+
+    private void openAnvilInput(Player player, String label, String currentVal, Consumer<String> callback) {
+        pendingAnvil.put(player.getUniqueId(), callback);
+        // Close current menu so openAnvil works cleanly
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            player.closeInventory();
+            InventoryView view;
+            try {
+                view = player.openAnvil(player.getLocation(), true);
+            } catch (Exception e) {
+                pendingAnvil.remove(player.getUniqueId());
+                player.sendMessage(Lang.msg("msg.admin.anvil_failed", player, NamedTextColor.RED));
                 openMenu(player);
+                return;
             }
+            if (view == null) {
+                pendingAnvil.remove(player.getUniqueId());
+                player.sendMessage(Lang.msg("msg.admin.anvil_failed", player, NamedTextColor.RED));
+                openMenu(player);
+                return;
+            }
+            // Place item in left slot with current value as name (player types new value)
+            ItemStack base = new ItemStack(Material.PAPER);
+            ItemMeta m = base.getItemMeta();
+            m.displayName(Component.text(currentVal)
+                    .decoration(TextDecoration.ITALIC, false).color(NamedTextColor.WHITE));
+            m.lore(List.of(Component.text("← " + label)
+                    .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
+            base.setItemMeta(m);
+            view.getTopInventory().setItem(0, base);
+            player.sendActionBar(Component.text("Введите значение для: " + label)
+                    .color(NamedTextColor.YELLOW));
         });
     }
 
-    private void promptDouble(Player player, String name, Consumer<Double> callback) {
-        player.sendMessage(Lang.msg("msg.admin.prompt_double", player, NamedTextColor.YELLOW, name));
-        pendingInput.put(player.getUniqueId(), input -> {
-            if (isCancel(input)) { openMenu(player); return; }
-            try { callback.accept(Double.parseDouble(input.trim().replace(',', '.'))); }
-            catch (NumberFormatException e) {
-                player.sendMessage(Lang.msg("msg.admin.bad_number", player, NamedTextColor.RED, input));
-                openMenu(player);
-            }
-        });
+    // Anvil: set cost to 0 so admin doesn't spend XP
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPrepareAnvil(PrepareAnvilEvent event) {
+        if (!(event.getView().getPlayer() instanceof Player player)) return;
+        if (!pendingAnvil.containsKey(player.getUniqueId())) return;
+        if (event.getInventory() instanceof AnvilInventory anvil) anvil.setRepairCost(0);
+        // Keep result item if one was generated
     }
 
-    private boolean isCancel(String s) {
-        return s.equalsIgnoreCase("отмена") || s.equalsIgnoreCase("cancel");
-    }
+    // Anvil: player clicks output slot (slot 2) → confirm
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onAnvilClick(InventoryClickEvent event) {
+        if (event.getInventory().getType() != InventoryType.ANVIL) return;
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+        UUID uid = player.getUniqueId();
+        Consumer<String> callback = pendingAnvil.get(uid);
+        if (callback == null) return;
+        if (event.getRawSlot() != 2) { event.setCancelled(true); return; }
 
-    @SuppressWarnings("deprecation")
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onChat(AsyncPlayerChatEvent event) {
-        Consumer<String> handler = pendingInput.remove(event.getPlayer().getUniqueId());
-        if (handler == null) return;
+        ItemStack result = event.getCurrentItem();
+        if (result == null || !result.hasItemMeta()) { event.setCancelled(true); return; }
+
+        Component nameComp = result.getItemMeta().displayName();
+        String text = nameComp != null
+                ? PlainTextComponentSerializer.plainText().serialize(nameComp)
+                : "";
+
         event.setCancelled(true);
-        String msg = event.getMessage();
-        Bukkit.getScheduler().runTask(plugin, () -> handler.accept(msg));
+        pendingAnvil.remove(uid);
+        player.closeInventory();
+        // Run callback then reopen admin menu on next tick
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            callback.accept(text);
+            openMenu(player);
+        });
     }
 
-    // ── CraftType read / write via reflection ─────────────────────────────────
+    // Anvil: player closed without confirming → reopen admin menu
+    @EventHandler
+    public void onAnvilClose(InventoryCloseEvent event) {
+        if (event.getInventory().getType() != InventoryType.ANVIL) return;
+        if (!(event.getPlayer() instanceof Player player)) return;
+        if (pendingAnvil.remove(player.getUniqueId()) != null) {
+            Bukkit.getScheduler().runTask(plugin, () -> openMenu(player));
+        }
+    }
+
+    // ── Inventory events ───────────────────────────────────────────────────────
+
+    @SuppressWarnings("unchecked")
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onMenuClick(InventoryClickEvent event) {
+        if (!(event.getInventory().getHolder() instanceof AdminMenuHolder)) return;
+        event.setCancelled(true);
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+        UUID uid = player.getUniqueId();
+        Tab tab = currentTab.getOrDefault(uid, Tab.ALLOWED);
+        CraftType type = targetType.get(uid);
+        int slot = event.getRawSlot();
+
+        // ── Click in PLAYER's own inventory (slots 54+): add block ─────────
+        if (slot >= 54 && tab != Tab.SETTINGS && type != null) {
+            ItemStack clicked = event.getCurrentItem();
+            if (clicked != null && !clicked.getType().isAir() && clicked.getType().isBlock()) {
+                addBlock(type, tab, clicked.getType());
+                player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
+                        clicked.getType().name().toLowerCase()));
+                Bukkit.getScheduler().runTask(plugin, () -> openMenu(player));
+            }
+            return;
+        }
+
+        // ── Drop block onto grid (cursor has block → slot 9-44): add it ───
+        if (slot >= GRID_START && slot < GRID_START + GRID_SIZE
+                && tab != Tab.SETTINGS && type != null) {
+            ItemStack cursor = event.getCursor();
+            if (cursor != null && !cursor.getType().isAir() && cursor.getType().isBlock()
+                    && event.getAction() != InventoryAction.PICKUP_ALL
+                    && event.getAction() != InventoryAction.PICKUP_SOME) {
+                addBlock(type, tab, cursor.getType());
+                player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
+                        cursor.getType().name().toLowerCase()));
+                Bukkit.getScheduler().runTask(plugin, () -> openMenu(player));
+                return;
+            }
+        }
+
+        // ── Normal action slot ─────────────────────────────────────────────
+        if (slot < 0 || slot >= 54) return;
+        boolean shift = event.isShiftClick();
+        Consumer<Player>[] map = shift
+                ? shiftActions.getOrDefault(uid, menuActions.get(uid))
+                : menuActions.get(uid);
+        if (map == null || map[slot] == null) {
+            // Fallback to regular if no shift action
+            map = menuActions.get(uid);
+            if (map == null || map[slot] == null) return;
+        }
+        Consumer<Player> action = map[slot];
+        player.closeInventory();
+        Bukkit.getScheduler().runTask(plugin, () -> action.accept(player));
+    }
+
+    // ── Drag block items into the grid to add them ─────────────────────────────
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onMenuDrag(InventoryDragEvent event) {
+        if (!(event.getInventory().getHolder() instanceof AdminMenuHolder)) return;
+        event.setCancelled(true);
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+        UUID uid = player.getUniqueId();
+        Tab tab = currentTab.getOrDefault(uid, Tab.ALLOWED);
+        if (tab == Tab.SETTINGS) return;
+        CraftType type = targetType.get(uid);
+        if (type == null) return;
+
+        Material mat = event.getOldCursor().getType();
+        if (mat.isAir() || !mat.isBlock()) return;
+
+        boolean hitsGrid = event.getRawSlots().stream()
+                .anyMatch(s -> s >= GRID_START && s < GRID_START + GRID_SIZE);
+        if (hitsGrid) {
+            addBlock(type, tab, mat);
+            player.sendMessage(Lang.msg("msg.admin.block_added", player, NamedTextColor.GREEN,
+                    mat.name().toLowerCase()));
+            Bukkit.getScheduler().runTask(plugin, () -> openMenu(player));
+        }
+    }
+
+    @EventHandler
+    public void onMenuClose(InventoryCloseEvent event) {
+        if (!(event.getInventory().getHolder() instanceof AdminMenuHolder)) return;
+        UUID uid = event.getPlayer().getUniqueId();
+        menuActions.remove(uid);
+        shiftActions.remove(uid);
+    }
+
+    // ── CraftType read / write ─────────────────────────────────────────────────
+    //
+    //  Internal maps are Map<NamespacedKey, V> — keys match the public/private
+    //  NamespacedKey constants directly.
 
     private Set<Material> getBlockSet(CraftType type, Tab tab) {
         NamespacedKey key = blockKey(tab);
         if (key == null) return EnumSet.noneOf(Material.class);
         try {
             EnumSet<Material> s = type.getMaterialSetProperty(key);
-            return s != null ? s : EnumSet.noneOf(Material.class);
-        } catch (Exception e) { return EnumSet.noneOf(Material.class); }
+            return s != null ? new LinkedHashSet<>(s) : new LinkedHashSet<>();
+        } catch (Exception e) { return new LinkedHashSet<>(); }
     }
 
     private NamespacedKey blockKey(Tab tab) {
@@ -344,29 +528,24 @@ public class CraftAdminMenu implements Listener {
         modifyMaterialSet(type, blockKey(tab), false, mat);
     }
 
-    /**
-     * Finds the Property entry in the map whose getNamespacedKey() equals target,
-     * then adds/removes the given Material.
-     */
     @SuppressWarnings("unchecked")
-    private void modifyMaterialSet(CraftType type, NamespacedKey target, boolean add, Material mat) {
-        if (target == null) return;
+    private void modifyMaterialSet(CraftType type, NamespacedKey key, boolean add, Material mat) {
+        if (key == null) return;
         try {
-            Field f = declaredField(CraftType.class, "materialSetPropertyMap");
-            Map<Object, Set<Material>> map = (Map<Object, Set<Material>>) f.get(type);
-            Object pk = findPropKey(map, target);
-            if (pk == null) return;
-            Set<Material> cur = map.get(pk);
+            Field f = rf(CraftType.class, "materialSetPropertyMap");
+            Map<NamespacedKey, EnumSet<Material>> map =
+                    (Map<NamespacedKey, EnumSet<Material>>) f.get(type);
+            EnumSet<Material> cur = map.get(key);
             if (cur == null) {
-                if (add) map.put(pk, EnumSet.of(mat));
+                if (add) map.put(key, EnumSet.of(mat));
                 return;
             }
             try {
                 if (add) cur.add(mat); else cur.remove(mat);
             } catch (UnsupportedOperationException e) {
-                Set<Material> ns = cur.isEmpty() ? EnumSet.noneOf(Material.class) : EnumSet.copyOf(cur);
+                EnumSet<Material> ns = cur.isEmpty() ? EnumSet.noneOf(Material.class) : EnumSet.copyOf(cur);
                 if (add) ns.add(mat); else ns.remove(mat);
-                map.put(pk, ns);
+                map.put(key, ns);
             }
         } catch (Exception e) {
             plugin.getLogger().warning("[CraftAdmin] modifyMaterialSet: " + e);
@@ -374,36 +553,25 @@ public class CraftAdminMenu implements Listener {
     }
 
     @SuppressWarnings("unchecked")
-    private void modifyInt(CraftType type, NamespacedKey target, int value) {
+    private void modifyInt(CraftType type, NamespacedKey key, int value) {
         try {
-            Field f = declaredField(CraftType.class, "intPropertyMap");
-            Map<Object, Integer> map = (Map<Object, Integer>) f.get(type);
-            Object pk = findPropKey(map, target);
-            if (pk != null) map.put(pk, value);
-            else plugin.getLogger().warning("[CraftAdmin] modifyInt: key not found: " + target);
-        } catch (Exception e) {
-            plugin.getLogger().warning("[CraftAdmin] modifyInt: " + e);
-        }
+            ((Map<NamespacedKey, Integer>) rf(CraftType.class, "intPropertyMap").get(type)).put(key, value);
+        } catch (Exception e) { plugin.getLogger().warning("[CraftAdmin] modifyInt: " + e); }
     }
 
-    /** Tries doublePropertyMap first, falls back to floatPropertyMap. */
     @SuppressWarnings("unchecked")
-    private void modifyDoubleOrFloat(CraftType type, NamespacedKey target, double value) {
+    private void modifyDoubleOrFloat(CraftType type, NamespacedKey key, double value) {
         try {
-            Field fd = declaredField(CraftType.class, "doublePropertyMap");
-            Map<Object, Double> dm = (Map<Object, Double>) fd.get(type);
-            Object pk = findPropKey(dm, target);
-            if (pk != null) { dm.put(pk, value); return; }
+            Map<NamespacedKey, Double> dm =
+                    (Map<NamespacedKey, Double>) rf(CraftType.class, "doublePropertyMap").get(type);
+            if (dm.containsKey(key)) { dm.put(key, value); return; }
         } catch (Exception ignored) {}
         try {
-            Field ff = declaredField(CraftType.class, "floatPropertyMap");
-            Map<Object, Float> fm = (Map<Object, Float>) ff.get(type);
-            Object pk = findPropKey(fm, target);
-            if (pk != null) fm.put(pk, (float) value);
-            else plugin.getLogger().warning("[CraftAdmin] modifyDouble: key not found: " + target);
-        } catch (Exception e) {
-            plugin.getLogger().warning("[CraftAdmin] modifyDouble: " + e);
-        }
+            Map<NamespacedKey, Float> fm =
+                    (Map<NamespacedKey, Float>) rf(CraftType.class, "floatPropertyMap").get(type);
+            if (fm.containsKey(key)) { fm.put(key, (float) value); return; }
+        } catch (Exception ignored) {}
+        plugin.getLogger().warning("[CraftAdmin] modifyDouble: key not found: " + key);
     }
 
     private int safeInt(CraftType type, NamespacedKey key) {
@@ -416,20 +584,7 @@ public class CraftAdminMenu implements Listener {
         return -1;
     }
 
-    /** Find the map key whose getNamespacedKey() equals target. */
-    private Object findPropKey(Map<Object, ?> map, NamespacedKey target) {
-        for (Object k : map.keySet()) {
-            try {
-                NamespacedKey nk = (NamespacedKey) k.getClass()
-                        .getMethod("getNamespacedKey").invoke(k);
-                if (target.equals(nk)) return k;
-            } catch (Exception ignored) {}
-        }
-        return null;
-    }
-
-    private Field declaredField(Class<?> cls, String name)
-            throws NoSuchFieldException, IllegalAccessException {
+    private Field rf(Class<?> cls, String name) throws NoSuchFieldException, IllegalAccessException {
         Field f = cls.getDeclaredField(name);
         f.setAccessible(true);
         return f;
@@ -443,6 +598,7 @@ public class CraftAdminMenu implements Listener {
 
         File file = findCraftTypeFile(type);
         if (file == null || !file.exists()) {
+            plugin.getLogger().warning("[CraftAdmin] craft type file not found for: " + getTypeName(type));
             player.sendMessage(Lang.msg("msg.admin.no_file", player, NamedTextColor.YELLOW));
             return;
         }
@@ -480,7 +636,58 @@ public class CraftAdminMenu implements Listener {
         } catch (Exception ignored) {}
     }
 
-    /** Returns camelCase key if it exists in yaml, else snake_case key if it exists, else camelCase. */
+    // ── File finding ───────────────────────────────────────────────────────────
+    //
+    //  CraftType is constructed with a File; fileKey likely holds the absolute path.
+    //  Movecraft stores types in plugins/Movecraft/types/*.craft
+
+    private File findCraftTypeFile(CraftType type) {
+        // Try fileKey as absolute path first (most reliable)
+        try {
+            Field f = rf(CraftType.class, "fileKey");
+            Object val = f.get(type);
+            if (val instanceof String path && !path.isBlank()) {
+                File direct = new File(path);
+                if (direct.exists()) return direct;
+                plugin.getLogger().info("[CraftAdmin] fileKey='" + path + "' not found as absolute path");
+            }
+        } catch (Exception ignored) {}
+
+        Plugin mc = Bukkit.getPluginManager().getPlugin("Movecraft");
+        if (mc == null) return null;
+        File dataFolder = mc.getDataFolder();
+        String typeName = getTypeName(type);
+
+        // Scan known directories
+        for (String dir : new String[]{"types", "craft", "craftTypes", ""}) {
+            File d = dir.isEmpty() ? dataFolder : new File(dataFolder, dir);
+            if (!d.exists()) continue;
+            File[] files = d.listFiles();
+            if (files == null) continue;
+            for (File f : files) {
+                String base = f.getName().replaceFirst("\\.[^.]+$", "");
+                if (base.equalsIgnoreCase(typeName)) {
+                    plugin.getLogger().info("[CraftAdmin] found type file: " + f.getAbsolutePath());
+                    return f;
+                }
+            }
+        }
+
+        plugin.getLogger().warning("[CraftAdmin] Could not find file for type: " + typeName
+                + " in " + dataFolder.getAbsolutePath());
+        return null;
+    }
+
+    private String getTypeName(CraftType type) {
+        try {
+            String n = type.getStringProperty(CraftType.NAME);
+            if (n != null && !n.isBlank()) return n;
+        } catch (Exception ignored) {}
+        return "Unknown";
+    }
+
+    // ── YAML key helpers ───────────────────────────────────────────────────────
+
     private String resolveKey(YamlConfiguration yaml, String snake) {
         String cc = toCamel(snake);
         if (yaml.contains(cc)) return cc;
@@ -494,7 +701,6 @@ public class CraftAdminMenu implements Listener {
         return cc;
     }
 
-    /** snake_case → camelCase */
     private String toCamel(String snake) {
         StringBuilder sb = new StringBuilder();
         boolean up = false;
@@ -505,76 +711,7 @@ public class CraftAdminMenu implements Listener {
         return sb.toString();
     }
 
-    private File findCraftTypeFile(CraftType type) {
-        Plugin mc = Bukkit.getPluginManager().getPlugin("Movecraft");
-        if (mc == null) return null;
-
-        // Try the private fileKey field
-        String fileKey = null;
-        try {
-            Field f = declaredField(CraftType.class, "fileKey");
-            Object val = f.get(type);
-            if (val instanceof String s) fileKey = s;
-        } catch (Exception ignored) {}
-
-        if (fileKey != null) {
-            for (String dir : new String[]{"types", "craft", "craftTypes", ""}) {
-                for (String ext : new String[]{"", ".craft", ".yml"}) {
-                    File c = dir.isEmpty()
-                            ? new File(mc.getDataFolder(), fileKey + ext)
-                            : new File(mc.getDataFolder(), dir + "/" + fileKey + ext);
-                    if (c.exists()) return c;
-                }
-            }
-        }
-
-        // Fallback: search by type name
-        String typeName = getTypeName(type);
-        for (String dir : new String[]{"types", "craft", "craftTypes"}) {
-            File d = new File(mc.getDataFolder(), dir);
-            if (!d.exists()) continue;
-            File[] files = d.listFiles();
-            if (files == null) continue;
-            for (File f : files) {
-                String n = f.getName().replaceFirst("\\.[^.]+$", "");
-                if (n.equalsIgnoreCase(typeName)) return f;
-            }
-        }
-        return null;
-    }
-
-    private String getTypeName(CraftType type) {
-        try {
-            String n = type.getStringProperty(CraftType.NAME);
-            if (n != null && !n.isBlank()) return n;
-        } catch (Exception ignored) {}
-        return "Unknown";
-    }
-
-    // ── Inventory events ───────────────────────────────────────────────────────
-
-    @SuppressWarnings("unchecked")
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onMenuClick(InventoryClickEvent event) {
-        if (!(event.getInventory().getHolder() instanceof AdminMenuHolder)) return;
-        event.setCancelled(true);
-        if (!(event.getWhoClicked() instanceof Player player)) return;
-        int slot = event.getRawSlot();
-        if (slot < 0 || slot >= 54) return;
-        Consumer<Player>[] actions = menuActions.get(player.getUniqueId());
-        if (actions == null || actions[slot] == null) return;
-        Consumer<Player> action = actions[slot];
-        player.closeInventory();
-        Bukkit.getScheduler().runTask(plugin, () -> action.accept(player));
-    }
-
-    @EventHandler
-    public void onMenuClose(InventoryCloseEvent event) {
-        if (!(event.getInventory().getHolder() instanceof AdminMenuHolder)) return;
-        menuActions.remove(event.getPlayer().getUniqueId());
-    }
-
-    // ── Item builders ─────────────────────────────────────────────────────────
+    // ── Item builders ──────────────────────────────────────────────────────────
 
     private ItemStack tabItem(String name, Material mat, boolean active) {
         ItemStack is = new ItemStack(mat);
@@ -610,22 +747,8 @@ public class CraftAdminMenu implements Listener {
         ItemMeta m = is.getItemMeta();
         m.displayName(Component.text(mat.name().toLowerCase())
                 .color(NamedTextColor.WHITE).decoration(TextDecoration.ITALIC, false));
-        m.lore(List.of(Component.text("Нажмите — удалить из списка")
+        m.lore(List.of(Component.text("Нажмите — удалить")
                 .color(NamedTextColor.RED).decoration(TextDecoration.ITALIC, false)));
-        is.setItemMeta(m);
-        return is;
-    }
-
-    private ItemStack addBlockItem() {
-        ItemStack is = new ItemStack(Material.LIME_DYE);
-        ItemMeta m = is.getItemMeta();
-        m.displayName(Component.text("+ Добавить блок из руки")
-                .color(NamedTextColor.GREEN).decoration(TextDecoration.ITALIC, false));
-        m.lore(List.of(
-                Component.text("Возьмите блок в основную руку")
-                        .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false),
-                Component.text("и нажмите этот слот")
-                        .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
         is.setItemMeta(m);
         return is;
     }
@@ -639,12 +762,23 @@ public class CraftAdminMenu implements Listener {
         return is;
     }
 
+    private ItemStack stepItem(String label, Material mat) {
+        ItemStack is = new ItemStack(mat);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text(label)
+                .color(NamedTextColor.YELLOW).decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(Component.text("Shift+клик: ×10")
+                .color(NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)));
+        is.setItemMeta(m);
+        return is;
+    }
+
     private ItemStack intItem(String name, int value, Material mat) {
         ItemStack is = new ItemStack(mat);
         ItemMeta m = is.getItemMeta();
-        m.displayName(Component.text(name + ": " + (value < 0 ? "(не задано)" : value))
+        m.displayName(Component.text(name + ": " + (value < 0 ? "—" : value))
                 .color(NamedTextColor.AQUA).decoration(TextDecoration.ITALIC, false));
-        m.lore(List.of(Component.text("Нажмите — изменить")
+        m.lore(List.of(Component.text("Нажмите — ввести точное значение")
                 .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
         is.setItemMeta(m);
         return is;
@@ -653,20 +787,21 @@ public class CraftAdminMenu implements Listener {
     private ItemStack doubleItem(String name, double value, Material mat) {
         ItemStack is = new ItemStack(mat);
         ItemMeta m = is.getItemMeta();
-        String display = value < 0 ? "(не задано)" : String.format("%.2f", value);
+        String display = value < 0 ? "—" : String.format("%.2f", value);
         m.displayName(Component.text(name + ": " + display)
                 .color(NamedTextColor.AQUA).decoration(TextDecoration.ITALIC, false));
-        m.lore(List.of(Component.text("Нажмите — изменить")
+        m.lore(List.of(Component.text("Нажмите — ввести точное значение")
                 .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
         is.setItemMeta(m);
         return is;
     }
 
     @SuppressWarnings("unchecked")
-    private void setSlot(Inventory inv, Consumer<Player>[] actions, int slot,
-                         ItemStack item, Consumer<Player> action) {
+    private void setSlot(Inventory inv, Consumer<Player>[] actions, Consumer<Player>[] shifts,
+                         int slot, ItemStack item, Consumer<Player> action, Consumer<Player> shift) {
         inv.setItem(slot, item);
         actions[slot] = action;
+        shifts[slot] = shift != null ? shift : action;
     }
 
     // ── InventoryHolder ───────────────────────────────────────────────────────
