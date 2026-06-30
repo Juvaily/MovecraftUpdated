@@ -172,15 +172,48 @@ public class CraftAdminMenu implements Listener {
 
     // ── Type name lookup ───────────────────────────────────────────────────────
 
-    /** Find a registered CraftType whose name contains the search string (case-insensitive, normalized). */
+    /**
+     * Find a CraftType by name.
+     *
+     * Strategy (in order):
+     *  1. CraftManager.getCraftTypeFromString — Movecraft's own lookup (uses name: field)
+     *  2. Scan types/ folder filenames, call getCraftTypeFromString per filename
+     *  3. Iterate getCraftTypes() with normalized name comparison
+     */
     private CraftType findTypeByName(String search) {
+        // 1. Direct Movecraft lookup
+        try {
+            CraftType ct = CraftManager.getInstance().getCraftTypeFromString(search);
+            if (ct != null) return ct;
+        } catch (Exception ignored) {}
+
+        // 2. Filename-based: scan disk and try exact then partial filename match
+        List<String> fileNames = listTypeFileNames();
         String normSearch = normName(search);
+        String partialMatch = null;
+        for (String fn : fileNames) {
+            if (normName(fn).equals(normSearch)) {
+                try {
+                    CraftType ct = CraftManager.getInstance().getCraftTypeFromString(fn);
+                    if (ct != null) return ct;
+                } catch (Exception ignored) {}
+            }
+            if (partialMatch == null && normName(fn).contains(normSearch)) partialMatch = fn;
+        }
+        if (partialMatch != null) {
+            try {
+                CraftType ct = CraftManager.getInstance().getCraftTypeFromString(partialMatch);
+                if (ct != null) return ct;
+            } catch (Exception ignored) {}
+        }
+
+        // 3. Iterate registered types with normalized name comparison
         CraftType fallback = null;
         for (CraftType ct : CraftManager.getInstance().getCraftTypes()) {
             String name = safeTypeName(ct);
             if (name == null) continue;
-            if (normName(name).equals(normSearch)) return ct;           // exact
-            if (fallback == null && normName(name).contains(normSearch)) fallback = ct; // partial
+            if (normName(name).equals(normSearch)) return ct;
+            if (fallback == null && normName(name).contains(normSearch)) fallback = ct;
         }
         return fallback;
     }
@@ -190,22 +223,55 @@ public class CraftAdminMenu implements Listener {
         catch (Exception e) { return null; }
     }
 
-    /** Send the player a list of all registered craft type names. */
+    /**
+     * Send the player a list of all available craft type names.
+     *
+     * Sources:
+     *  - All .craft filenames in Movecraft's types/ folder (most reliable)
+     *  - getCraftTypes() with safeTypeName as fallback if folder scan fails
+     */
     private void sendTypeList(Player player) {
         List<String> names = new ArrayList<>();
+
+        // Primary: filenames from disk
+        List<String> fileNames = listTypeFileNames();
+        for (String fn : fileNames) {
+            // Show as-is; admin uses this exact string to find the type
+            if (!names.contains(fn)) names.add(fn);
+        }
+
+        // Fallback: registered types with readable names (may overlap or differ from filenames)
         for (CraftType ct : CraftManager.getInstance().getCraftTypes()) {
             String n = safeTypeName(ct);
-            if (n != null) names.add(n);
+            if (n != null && !names.contains(n)) names.add(n);
         }
+
         if (names.isEmpty()) {
-            player.sendMessage(Component.text("Нет зарегистрированных типов транспорта.")
+            player.sendMessage(Component.text("Нет зарегистрированных типов. Проверь папку Movecraft/types/")
                     .color(NamedTextColor.GRAY));
             return;
         }
         names.sort(String.CASE_INSENSITIVE_ORDER);
-        player.sendMessage(Component.text("Типы транспорта (/craftadmin <имя>): ")
+        player.sendMessage(Component.text("Типы (/craftadmin <имя>): ")
                 .color(NamedTextColor.GOLD)
                 .append(Component.text(String.join(", ", names)).color(NamedTextColor.YELLOW)));
+    }
+
+    /** Returns all .craft filenames without extension from Movecraft's types folder. */
+    private List<String> listTypeFileNames() {
+        Plugin mc = Bukkit.getPluginManager().getPlugin("Movecraft");
+        if (mc == null) return List.of();
+        List<String> result = new ArrayList<>();
+        for (String dir : new String[]{"types", "craft", "craftTypes"}) {
+            File d = new File(mc.getDataFolder(), dir);
+            if (!d.exists()) continue;
+            File[] files = d.listFiles();
+            if (files == null) continue;
+            for (File f : files) {
+                if (f.isFile()) result.add(f.getName().replaceFirst("\\.[^.]+$", ""));
+            }
+        }
+        return result;
     }
 
     // ── Build and open inventory ───────────────────────────────────────────────
