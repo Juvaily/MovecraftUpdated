@@ -203,8 +203,9 @@ public class CraftAdminMenu implements Listener {
         setSlot(inv, a, s, 2, tabItem("🔵 Сквозные",    Material.CYAN_STAINED_GLASS_PANE,  active == Tab.PASSTHROUGH), p -> switchTab(p, Tab.PASSTHROUGH), null);
         setSlot(inv, a, s, 3, tabItem("⚙ Параметры",   Material.COMPARATOR,               active == Tab.SETTINGS),    p -> switchTab(p, Tab.SETTINGS),    null);
         ItemStack bg = bgItem();
-        for (int i = 4; i <= 7; i++) inv.setItem(i, bg);
-        setSlot(inv, a, s, 8, saveItem(), p -> { saveChanges(p); openMenu(p); }, null);
+        for (int i = 4; i <= 6; i++) inv.setItem(i, bg);
+        setSlot(inv, a, s, 7, reloadItem(), p -> { reloadFromFile(p); openMenu(p); }, null);
+        setSlot(inv, a, s, 8, saveItem(),   p -> { saveChanges(p);   openMenu(p); }, null);
     }
 
     private void switchTab(Player player, Tab tab) {
@@ -644,6 +645,64 @@ public class CraftAdminMenu implements Listener {
         }
     }
 
+    // ── Reload from disk → restore in-memory CraftType state ─────────────────
+
+    private void reloadFromFile(Player player) {
+        CraftType type = targetType.get(player.getUniqueId());
+        if (type == null) return;
+
+        File file = findCraftTypeFile(type);
+        if (file == null || !file.exists()) {
+            player.sendMessage(Lang.msg("msg.admin.no_file", player, NamedTextColor.YELLOW));
+            return;
+        }
+
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+
+        // Block sets
+        reloadBlockSet(yaml, type, CraftType.ALLOWED_BLOCKS,     "allowedBlocks",     "allowed_blocks");
+        reloadBlockSet(yaml, type, CraftType.FORBIDDEN_BLOCKS,   "forbiddenBlocks",   "forbidden_blocks");
+        reloadBlockSet(yaml, type, CraftType.PASSTHROUGH_BLOCKS, "passthroughBlocks", "passthrough_blocks");
+
+        // Integer properties
+        for (IntProp p : IntProp.values()) {
+            String key = resolveKeyPair(yaml, p.yamlKey, toCamel(p.yamlKey));
+            if (yaml.contains(key)) modifyInt(type, p.key, yaml.getInt(key));
+        }
+        // Double/float properties
+        for (DoubleProp p : DoubleProp.values()) {
+            String key = resolveKeyPair(yaml, p.yamlKey, toCamel(p.yamlKey));
+            if (yaml.contains(key)) modifyDoubleOrFloat(type, p.key, yaml.getDouble(key));
+        }
+
+        player.sendMessage(Lang.msg("msg.admin.reloaded", player, NamedTextColor.GREEN, file.getName()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void reloadBlockSet(YamlConfiguration yaml, CraftType type,
+                                NamespacedKey key, String keyCC, String keySC) {
+        String yamlKey = yaml.contains(keyCC) ? keyCC : yaml.contains(keySC) ? keySC : null;
+        if (yamlKey == null) return;
+        List<?> raw = yaml.getList(yamlKey);
+        if (raw == null) return;
+
+        EnumSet<Material> set = EnumSet.noneOf(Material.class);
+        for (Object entry : raw) {
+            if (!(entry instanceof String s)) continue;
+            Material mat = Material.matchMaterial(s);
+            if (mat != null) set.add(mat);
+        }
+
+        try {
+            Field f = rf(CraftType.class, "materialSetPropertyMap");
+            Map<NamespacedKey, EnumSet<Material>> map =
+                    (Map<NamespacedKey, EnumSet<Material>>) f.get(type);
+            map.put(key, set);
+        } catch (Exception e) {
+            plugin.getLogger().warning("[CraftAdmin] reloadBlockSet: " + e);
+        }
+    }
+
     private void saveBlockSet(YamlConfiguration yaml, CraftType type,
                               NamespacedKey key, String keyCC, String keySC) {
         try {
@@ -762,6 +821,17 @@ public class CraftAdminMenu implements Listener {
         ItemStack is = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
         ItemMeta m = is.getItemMeta();
         m.displayName(Component.empty());
+        is.setItemMeta(m);
+        return is;
+    }
+
+    private ItemStack reloadItem() {
+        ItemStack is = new ItemStack(Material.RECOVERY_COMPASS);
+        ItemMeta m = is.getItemMeta();
+        m.displayName(Component.text("↩ Сбросить из файла")
+                .color(NamedTextColor.GOLD).decoration(TextDecoration.ITALIC, false));
+        m.lore(List.of(Component.text("Откатить изменения к состоянию на диске")
+                .color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)));
         is.setItemMeta(m);
         return is;
     }
