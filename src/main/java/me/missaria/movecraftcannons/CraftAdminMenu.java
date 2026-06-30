@@ -31,6 +31,7 @@ import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.*;
@@ -910,7 +911,12 @@ public class CraftAdminMenu implements Listener {
         }
 
         try {
-            yaml.save(file);
+            // Bukkit YAML writes list items without indentation ("- item").
+            // Movecraft .craft files use 4-space indent ("    - item"), so fix before writing.
+            String content = yaml.saveToString().replaceAll("(?m)^- ", "    - ");
+            try (FileWriter fw = new FileWriter(file, java.nio.charset.StandardCharsets.UTF_8)) {
+                fw.write(content);
+            }
             player.sendMessage(Lang.msg("msg.admin.saved", player, NamedTextColor.GREEN, file.getName()));
             if (type == null) {
                 player.sendMessage(Lang.msg("msg.admin.file_saved_reload", player, NamedTextColor.YELLOW));
