@@ -913,7 +913,7 @@ public class CraftAdminMenu implements Listener {
         try {
             // Bukkit YAML writes list items without indentation ("- item").
             // Movecraft .craft files use 4-space indent ("    - item"), so fix before writing.
-            String content = yaml.saveToString().replaceAll("(?m)^- ", "    - ");
+            String content = yaml.saveToString().replaceAll("(?m)^ *- ", "    - ");
             try (FileWriter fw = new FileWriter(file, java.nio.charset.StandardCharsets.UTF_8)) {
                 fw.write(content);
             }
