@@ -495,3 +495,16 @@ msg.aim_on:          "🎯 Прицілювання увімкнено ({0} га
 msg.aim_off:         "🎯 Прицілювання вимкнено"
 msg.no_permission:   "§cНемає доступу."
 msg.wind_randomized: "§aВітер змінено."
+
+# ── Craft admin menu ──────────────────────────────────────────────────────────
+msg.admin.no_craft_nearby:  "§cНемає транспорту поруч. Керуйте транспортом або вкажіть тип: /craftadmin [тип]"
+msg.admin.type_not_found:   "§cТип транспорту не знайдено: {0}"
+msg.admin.not_a_block:      "§cВ руці немає блоку."
+msg.admin.block_added:      "§aБлок додано: {0}"
+msg.admin.block_removed:    "§eБлок видалено: {0}"
+msg.admin.prompt_int:       "§eВведіть нове ціле значення для §f{0}§e (або §cвідміна§e):"
+msg.admin.prompt_double:    "§eВведіть нове дробне значення для §f{0}§e (або §cвідміна§e):"
+msg.admin.bad_number:       "§cНеправильне число: {0}"
+msg.admin.no_file:          "§eФайл конфігурації типу не знайдено. Зміни застосовано тільки в пам'яті."
+msg.admin.saved:            "§aЗміни збережено в {0}"
+msg.admin.save_error:       "§cПомилка збереження: {0}"

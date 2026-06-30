@@ -8,6 +8,11 @@ depend:
   - Movecraft
   - Cannons
 commands:
+  craftadmin:
+    description: Открыть меню администратора для редактирования типа транспорта
+    usage: /craftadmin [тип]
+    permission: movecraftcannons.admin.craft
+    aliases: [cadmin, ca]
   shipmenu:
     description: Открыть меню управления транспортом
     usage: /shipmenu
@@ -27,4 +32,7 @@ commands:
 permissions:
   movecraftcannons.admin.wind:
     description: Доступ к команде /windroll
+    default: op
+  movecraftcannons.admin.craft:
+    description: Доступ к команде /craftadmin (редактирование типов транспорта)
     default: op

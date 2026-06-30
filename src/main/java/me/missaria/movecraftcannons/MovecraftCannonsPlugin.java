@@ -43,6 +43,8 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(turretListener, this);
         wasdListener.setTurretListener(turretListener);
         shipMenu.setTurretListener(turretListener);
+        craftAdminMenu = new CraftAdminMenu(this);
+        getServer().getPluginManager().registerEvents(craftAdminMenu, this);
 
         installMovecraftLang();
 
@@ -50,8 +52,17 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         if (debug) getLogger().info("  Debug mode ON.");
     }
 
+    private CraftAdminMenu craftAdminMenu;
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (command.getName().equalsIgnoreCase("craftadmin")) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(Lang.get("msg.only_players"));
+                return true;
+            }
+            return craftAdminMenu.onCommand(player, args);
+        }
         if (command.getName().equalsIgnoreCase("shipmenu")) {
             if (!(sender instanceof Player player)) {
                 sender.sendMessage(Lang.get("msg.only_players"));
