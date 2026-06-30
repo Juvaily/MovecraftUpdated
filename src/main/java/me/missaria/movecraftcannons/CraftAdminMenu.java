@@ -385,9 +385,11 @@ public class CraftAdminMenu implements Listener {
         else if (tab == Tab.SETTINGS)         buildFileOnlySettingsNote(inv, player);
         else                                  buildBlockContent(inv, actions, shifts, player, uid, tab);
 
+        // Open FIRST — this fires InventoryCloseEvent for any previously open admin menu,
+        // which would clear menuActions. Storing actions AFTER ensures they survive.
+        player.openInventory(inv);
         menuActions.put(uid, actions);
         shiftActions.put(uid, shifts);
-        player.openInventory(inv);
     }
 
     // ── Row 0: tabs + save ─────────────────────────────────────────────────────
@@ -645,6 +647,8 @@ public class CraftAdminMenu implements Listener {
 
         event.setCancelled(true);
         pendingAnvil.remove(uid);
+        // Clear input slot so Bukkit doesn't return the paper to the player's inventory on close
+        event.getInventory().setItem(0, null);
         player.closeInventory();
         // Run callback then reopen admin menu on next tick
         Bukkit.getScheduler().runTask(plugin, () -> {
