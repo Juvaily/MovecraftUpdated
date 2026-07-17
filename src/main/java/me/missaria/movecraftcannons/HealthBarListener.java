@@ -97,16 +97,7 @@ public class HealthBarListener implements Listener {
             origEntryCount.put(uid, maxCounts);
             moveMinCount.put(uid, minCounts);
 
-            boolean belowMin = false;
-            for (int i = 0; i < minCounts.length; i++) {
-                if (minCounts[i] > 0 && sc[2 + i] < minCounts[i]) { belowMin = true; break; }
-            }
-            if (belowMin) {
-                Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                    craft.setDisabled(true);
-                    craft.setCruising(false);
-                }, 1L);
-            }
+            // Disabled state is managed by Movecraft; we never disable crafts ourselves.
         }
         if (!fEntries.isEmpty()) {
             int[] maxCounts = new int[fEntries.size()];
@@ -195,6 +186,7 @@ public class HealthBarListener implements Listener {
         activeCrafts.forEach((uid, craft) -> {
             TextDisplay disp = displays.get(uid);
             if (disp == null || !disp.isValid()) { remove(uid); return; }
+            if (craft.getDisabled()) craft.setDisabled(false);
             refreshDisplay(uid);
         });
     }
