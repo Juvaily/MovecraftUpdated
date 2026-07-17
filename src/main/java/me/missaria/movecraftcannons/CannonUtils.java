@@ -35,7 +35,10 @@ public final class CannonUtils {
         List<Cannon> result = new ArrayList<>();
         Set<UUID> seen = new HashSet<>();
 
-        // Method 1: Cannons' own lookup by location list
+        // Method 1: Cannons' own lookup by location list.
+        // Filter results through the same air-block guard as Method 2 to reject
+        // stale CannonManager entries that getCannonsByLocations may still return
+        // after the originating ship moved away.
         try {
             List<Location> locs = new ArrayList<>(hitBox.size());
             for (MovecraftLocation loc : hitBox)
@@ -43,8 +46,15 @@ public final class CannonUtils {
             HashSet<Cannon> found = CannonManager.getInstance().getCannonsByLocations(locs);
             if (found != null) {
                 for (Cannon c : found) {
-                    result.add(c);
-                    try { seen.add(c.getUID()); } catch (Exception ignored) {}
+                    try {
+                        Vector off = c.getCannonPosition().getOffset();
+                        int bx = (int) Math.floor(off.getX());
+                        int by = (int) Math.floor(off.getY());
+                        int bz = (int) Math.floor(off.getZ());
+                        if (world.getBlockAt(bx, by, bz).getType().isAir()) continue;
+                        result.add(c);
+                        seen.add(c.getUID());
+                    } catch (Exception ignored) {}
                 }
             }
         } catch (Exception ignored) {}
