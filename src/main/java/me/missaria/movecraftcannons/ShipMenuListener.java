@@ -733,7 +733,6 @@ public class ShipMenuListener implements Listener {
             if (player == null) { toRemove.add(uid); continue; }
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
             if (craft == null) { toRemove.add(uid); continue; }
-            if (craft.getDisabled()) continue;
             SailGear gear = sailGears.getOrDefault(uid, SailGear.HALF);
             int baseBps = baseBpsCache.getOrDefault(uid, getBaseBps(craft));
             int move    = gear.apply(baseBps);
@@ -764,7 +763,6 @@ public class ShipMenuListener implements Listener {
             if (player == null) { toRemoveLat.add(uid); continue; }
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(player);
             if (craft == null) { toRemoveLat.add(uid); continue; }
-            if (craft.getDisabled()) continue;
             int baseBps = baseBpsCache.getOrDefault(uid, getBaseBps(craft));
             int move    = Math.max(1, baseBps / 2);
             int[] cv    = sailDirVec(entry.getValue());

@@ -186,7 +186,6 @@ public class HealthBarListener implements Listener {
         activeCrafts.forEach((uid, craft) -> {
             TextDisplay disp = displays.get(uid);
             if (disp == null || !disp.isValid()) { remove(uid); return; }
-            if (craft.getDisabled()) craft.setDisabled(false);
             refreshDisplay(uid);
         });
     }
