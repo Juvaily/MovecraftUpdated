@@ -1,8 +1,11 @@
 package me.missaria.movecraftcannons;
 
+import net.countercraft.movecraft.CruiseDirection;
 import net.countercraft.movecraft.craft.Craft;
+import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.craft.type.CraftType;
 import net.countercraft.movecraft.craft.type.RequiredBlockEntry;
+import net.countercraft.movecraft.features.status.events.CraftStatusUpdateEvent;
 import org.bukkit.NamespacedKey;
 import net.countercraft.movecraft.events.CraftCollisionExplosionEvent;
 import net.countercraft.movecraft.events.CraftDetectEvent;
@@ -54,6 +57,9 @@ public class HealthBarListener implements Listener {
     private final Map<UUID, int[]>                    flyMinCount    = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    scanCache          = new ConcurrentHashMap<>();
     private final Map<UUID, Map<Material, Integer>>   materialCountCache = new ConcurrentHashMap<>();
+    // Saved cruise state before StatusManager's CraftStatusUpdateEvent fires
+    private final Map<UUID, Boolean>          preStatusCruising = new ConcurrentHashMap<>();
+    private final Map<UUID, CruiseDirection>  preStatusDir      = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -156,6 +162,38 @@ public class HealthBarListener implements Listener {
         Bukkit.getScheduler().runTaskLater(plugin, () -> remove(uid), 100L);
     }
 
+    // ── StatusManager intercept ───────────────────────────────────────────────
+    // StatusManager calls setDisabled(true)+setCruising(false) in its MONITOR handler
+    // when overall block count drops below SINK_PERCENT. We save cruise state before
+    // the event and restore it after, then reset disabled.
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onStatusUpdatePre(CraftStatusUpdateEvent event) {
+        UUID uid = event.getCraft().getUUID();
+        if (!activeCrafts.containsKey(uid)) return;
+        if (!(event.getCraft() instanceof PlayerCraft pc)) return;
+        preStatusCruising.put(uid, pc.getCruising());
+        CruiseDirection dir = pc.getCruiseDirection();
+        if (dir != null) preStatusDir.put(uid, dir);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onStatusUpdatePost(CraftStatusUpdateEvent event) {
+        Craft craft = event.getCraft();
+        UUID uid = craft.getUUID();
+        if (!activeCrafts.containsKey(uid)) return;
+        if (!craft.getDisabled()) return;
+        craft.setDisabled(false);
+        if (!(craft instanceof PlayerCraft pc)) return;
+        if (pc.getCruising()) return;
+        Boolean wasCruising = preStatusCruising.get(uid);
+        CruiseDirection dir = preStatusDir.get(uid);
+        if (Boolean.TRUE.equals(wasCruising) && dir != null && dir != CruiseDirection.NONE) {
+            pc.setCruiseDirection(dir);
+            pc.setCruising(true);
+        }
+    }
+
     // ── Combat refresh ────────────────────────────────────────────────────────
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -225,6 +263,8 @@ public class HealthBarListener implements Listener {
         flyMinCount.remove(uid);
         scanCache.remove(uid);
         materialCountCache.remove(uid);
+        preStatusCruising.remove(uid);
+        preStatusDir.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
