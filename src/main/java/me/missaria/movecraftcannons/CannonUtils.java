@@ -49,7 +49,9 @@ public final class CannonUtils {
             }
         } catch (Exception ignored) {}
 
-        // Method 2: iterate all cannons, match floor'd offset against hitbox
+        // Method 2: iterate all cannons, match floor'd offset against hitbox.
+        // Also verify the block at the stored position is non-air: guards against stale
+        // CannonManager entries whose ship moved away (position no longer matches any block).
         try {
             for (Cannon cannon : CannonManager.getInstance().getCannonList().values()) {
                 try {
@@ -57,14 +59,14 @@ public final class CannonUtils {
                     if (seen.contains(uid)) continue;
                     if (!worldUID.equals(cannon.getCannonPosition().getWorld())) continue;
                     Vector off = cannon.getCannonPosition().getOffset();
-                    MovecraftLocation mloc = new MovecraftLocation(
-                            (int) Math.floor(off.getX()),
-                            (int) Math.floor(off.getY()),
-                            (int) Math.floor(off.getZ()));
-                    if (hitBox.contains(mloc)) {
-                        result.add(cannon);
-                        seen.add(uid);
-                    }
+                    int bx = (int) Math.floor(off.getX());
+                    int by = (int) Math.floor(off.getY());
+                    int bz = (int) Math.floor(off.getZ());
+                    MovecraftLocation mloc = new MovecraftLocation(bx, by, bz);
+                    if (!hitBox.contains(mloc)) continue;
+                    if (world.getBlockAt(bx, by, bz).getType().isAir()) continue;
+                    result.add(cannon);
+                    seen.add(uid);
                 } catch (Exception ignored) {}
             }
         } catch (Exception ignored) {}
