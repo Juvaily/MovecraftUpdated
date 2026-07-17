@@ -65,6 +65,7 @@ public class HealthBarListener implements Listener {
     public HealthBarListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
         Bukkit.getScheduler().runTaskTimer(plugin, this::updateAll, 20L, 10L);
+        Bukkit.getScheduler().runTaskTimer(plugin, this::forceEnable, 1L, 2L);
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -181,6 +182,10 @@ public class HealthBarListener implements Listener {
     }
 
     // ── Periodic update ───────────────────────────────────────────────────────
+
+    private void forceEnable() {
+        activeCrafts.values().forEach(c -> { if (c.getDisabled()) c.setDisabled(false); });
+    }
 
     private void updateAll() {
         activeCrafts.forEach((uid, craft) -> {
