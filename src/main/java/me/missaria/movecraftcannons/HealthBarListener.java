@@ -4,8 +4,6 @@ import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.craft.type.CraftType;
 import net.countercraft.movecraft.craft.type.RequiredBlockEntry;
 import org.bukkit.NamespacedKey;
-import net.countercraft.movecraft.CruiseDirection;
-import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.events.CraftCollisionExplosionEvent;
 import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
@@ -56,8 +54,6 @@ public class HealthBarListener implements Listener {
     private final Map<UUID, int[]>                    flyMinCount    = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    scanCache          = new ConcurrentHashMap<>();
     private final Map<UUID, Map<Material, Integer>>   materialCountCache = new ConcurrentHashMap<>();
-    // Timestamp of last successful translate per craft — used to detect cruise being killed by disabled
-    private final Map<UUID, Long>                     lastTranslateMs    = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -69,7 +65,6 @@ public class HealthBarListener implements Listener {
     public HealthBarListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
         Bukkit.getScheduler().runTaskTimer(plugin, this::updateAll, 20L, 10L);
-        Bukkit.getScheduler().runTaskTimer(plugin, this::forceEnable, 1L, 1L);
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -164,26 +159,18 @@ public class HealthBarListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCollisionExplosion(CraftCollisionExplosionEvent event) {
-        Craft craft = event.getCraft();
-        UUID uid = craft.getUUID();
-        craft.setDisabled(false);
+        UUID uid = event.getCraft().getUUID();
         if (!displays.containsKey(uid)) return;
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            craft.setDisabled(false);
-            refreshDisplay(uid);
-        }, 1L);
+        Bukkit.getScheduler().runTaskLater(plugin, () -> refreshDisplay(uid), 1L);
     }
 
     // ── Follow movement ───────────────────────────────────────────────────────
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onTranslate(CraftTranslateEvent event) {
-        Craft craft = event.getCraft();
-        craft.setDisabled(false);
-        lastTranslateMs.put(craft.getUUID(), System.currentTimeMillis());
-        TextDisplay disp = displays.get(craft.getUUID());
+        TextDisplay disp = displays.get(event.getCraft().getUUID());
         if (disp == null) return;
-        disp.teleport(above(event.getNewHitBox(), craft.getWorld()));
+        disp.teleport(above(event.getNewHitBox(), event.getCraft().getWorld()));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -194,10 +181,6 @@ public class HealthBarListener implements Listener {
     }
 
     // ── Periodic update ───────────────────────────────────────────────────────
-
-    private void forceEnable() {
-        activeCrafts.values().forEach(c -> { if (c.getDisabled()) c.setDisabled(false); });
-    }
 
     private void updateAll() {
         activeCrafts.forEach((uid, craft) -> {
@@ -237,7 +220,6 @@ public class HealthBarListener implements Listener {
         flyMinCount.remove(uid);
         scanCache.remove(uid);
         materialCountCache.remove(uid);
-        lastTranslateMs.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
