@@ -4,6 +4,7 @@ import at.pavlov.cannons.cannon.Cannon;
 import net.countercraft.movecraft.MovecraftRotation;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
+import net.countercraft.movecraft.events.CraftReleaseEvent;
 import org.bukkit.ChatColor;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
@@ -85,10 +86,17 @@ public class TurretListener implements Listener {
         }
     }
 
-    // ── Clear on quit ─────────────────────────────────────────────────────────
+    // ── Clear on quit / craft release ────────────────────────────────────────
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) { clear(event.getPlayer().getUniqueId()); }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onCraftRelease(CraftReleaseEvent event) {
+        if (!(event.getCraft() instanceof net.countercraft.movecraft.craft.PilotedCraft pc)) return;
+        org.bukkit.entity.Player pilot = pc.getPilot();
+        if (pilot != null) clear(pilot.getUniqueId());
+    }
 
     private void clear(UUID uid) {
         turretCache.remove(uid);
