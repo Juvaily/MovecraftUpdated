@@ -4,6 +4,8 @@ import net.countercraft.movecraft.craft.Craft;
 import net.countercraft.movecraft.craft.type.CraftType;
 import net.countercraft.movecraft.craft.type.RequiredBlockEntry;
 import org.bukkit.NamespacedKey;
+import net.countercraft.movecraft.CruiseDirection;
+import net.countercraft.movecraft.craft.PlayerCraft;
 import net.countercraft.movecraft.events.CraftCollisionExplosionEvent;
 import net.countercraft.movecraft.events.CraftDetectEvent;
 import net.countercraft.movecraft.events.CraftReleaseEvent;
@@ -54,6 +56,8 @@ public class HealthBarListener implements Listener {
     private final Map<UUID, int[]>                    flyMinCount    = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    scanCache          = new ConcurrentHashMap<>();
     private final Map<UUID, Map<Material, Integer>>   materialCountCache = new ConcurrentHashMap<>();
+    // Timestamp of last successful translate per craft — used to detect cruise being killed by disabled
+    private final Map<UUID, Long>                     lastTranslateMs    = new ConcurrentHashMap<>();
 
     private static final Transformation SCALE = new Transformation(
             new Vector3f(0, 0, 0),
@@ -176,6 +180,7 @@ public class HealthBarListener implements Listener {
     public void onTranslate(CraftTranslateEvent event) {
         Craft craft = event.getCraft();
         craft.setDisabled(false);
+        lastTranslateMs.put(craft.getUUID(), System.currentTimeMillis());
         TextDisplay disp = displays.get(craft.getUUID());
         if (disp == null) return;
         disp.teleport(above(event.getNewHitBox(), craft.getWorld()));
@@ -191,7 +196,21 @@ public class HealthBarListener implements Listener {
     // ── Periodic update ───────────────────────────────────────────────────────
 
     private void forceEnable() {
-        activeCrafts.values().forEach(c -> { if (c.getDisabled()) c.setDisabled(false); });
+        long now = System.currentTimeMillis();
+        activeCrafts.forEach((uid, craft) -> {
+            if (!craft.getDisabled()) return;
+            craft.setDisabled(false);
+            // Movecraft calls setCruising(false) when it sets disabled. If the craft
+            // was moving recently (translated within the last second), restart cruise
+            // so the player doesn't have to manually re-enable it.
+            if (!(craft instanceof PlayerCraft pc)) return;
+            if (pc.getCruising()) return;
+            Long lastMs = lastTranslateMs.get(uid);
+            if (lastMs == null || now - lastMs > 1000) return;
+            CruiseDirection dir = pc.getCruiseDirection();
+            if (dir == null || dir == CruiseDirection.NONE) return;
+            pc.setCruising(true);
+        });
     }
 
     private void updateAll() {
@@ -232,6 +251,7 @@ public class HealthBarListener implements Listener {
         flyMinCount.remove(uid);
         scanCache.remove(uid);
         materialCountCache.remove(uid);
+        lastTranslateMs.remove(uid);
         TextDisplay disp = displays.remove(uid);
         if (disp != null && disp.isValid()) disp.remove();
     }
