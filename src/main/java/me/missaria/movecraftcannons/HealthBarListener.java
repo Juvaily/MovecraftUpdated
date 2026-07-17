@@ -65,7 +65,7 @@ public class HealthBarListener implements Listener {
     public HealthBarListener(MovecraftCannonsPlugin plugin) {
         this.plugin = plugin;
         Bukkit.getScheduler().runTaskTimer(plugin, this::updateAll, 20L, 10L);
-        Bukkit.getScheduler().runTaskTimer(plugin, this::forceEnable, 1L, 2L);
+        Bukkit.getScheduler().runTaskTimer(plugin, this::forceEnable, 1L, 1L);
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -160,18 +160,25 @@ public class HealthBarListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCollisionExplosion(CraftCollisionExplosionEvent event) {
-        UUID uid = event.getCraft().getUUID();
+        Craft craft = event.getCraft();
+        UUID uid = craft.getUUID();
+        craft.setDisabled(false);
         if (!displays.containsKey(uid)) return;
-        Bukkit.getScheduler().runTaskLater(plugin, () -> refreshDisplay(uid), 1L);
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            craft.setDisabled(false);
+            refreshDisplay(uid);
+        }, 1L);
     }
 
     // ── Follow movement ───────────────────────────────────────────────────────
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onTranslate(CraftTranslateEvent event) {
-        TextDisplay disp = displays.get(event.getCraft().getUUID());
+        Craft craft = event.getCraft();
+        craft.setDisabled(false);
+        TextDisplay disp = displays.get(craft.getUUID());
         if (disp == null) return;
-        disp.teleport(above(event.getNewHitBox(), event.getCraft().getWorld()));
+        disp.teleport(above(event.getNewHitBox(), craft.getWorld()));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
