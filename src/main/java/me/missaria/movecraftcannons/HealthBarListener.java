@@ -196,21 +196,7 @@ public class HealthBarListener implements Listener {
     // ── Periodic update ───────────────────────────────────────────────────────
 
     private void forceEnable() {
-        long now = System.currentTimeMillis();
-        activeCrafts.forEach((uid, craft) -> {
-            if (!craft.getDisabled()) return;
-            craft.setDisabled(false);
-            // Movecraft calls setCruising(false) when it sets disabled. If the craft
-            // was moving recently (translated within the last second), restart cruise
-            // so the player doesn't have to manually re-enable it.
-            if (!(craft instanceof PlayerCraft pc)) return;
-            if (pc.getCruising()) return;
-            Long lastMs = lastTranslateMs.get(uid);
-            if (lastMs == null || now - lastMs > 1000) return;
-            CruiseDirection dir = pc.getCruiseDirection();
-            if (dir == null || dir == CruiseDirection.NONE) return;
-            pc.setCruising(true);
-        });
+        activeCrafts.values().forEach(c -> { if (c.getDisabled()) c.setDisabled(false); });
     }
 
     private void updateAll() {

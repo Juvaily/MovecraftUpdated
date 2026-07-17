@@ -35,10 +35,7 @@ public final class CannonUtils {
         List<Cannon> result = new ArrayList<>();
         Set<UUID> seen = new HashSet<>();
 
-        // Method 1: Cannons' own lookup by location list.
-        // Filter results through the same air-block guard as Method 2 to reject
-        // stale CannonManager entries that getCannonsByLocations may still return
-        // after the originating ship moved away.
+        // Method 1: Cannons' own lookup by location list
         try {
             List<Location> locs = new ArrayList<>(hitBox.size());
             for (MovecraftLocation loc : hitBox)
@@ -46,22 +43,14 @@ public final class CannonUtils {
             HashSet<Cannon> found = CannonManager.getInstance().getCannonsByLocations(locs);
             if (found != null) {
                 for (Cannon c : found) {
-                    try {
-                        Vector off = c.getCannonPosition().getOffset();
-                        int bx = (int) Math.floor(off.getX());
-                        int by = (int) Math.floor(off.getY());
-                        int bz = (int) Math.floor(off.getZ());
-                        if (world.getBlockAt(bx, by, bz).getType().isAir()) continue;
-                        result.add(c);
-                        seen.add(c.getUID());
-                    } catch (Exception ignored) {}
+                    result.add(c);
+                    try { seen.add(c.getUID()); } catch (Exception ignored) {}
                 }
             }
         } catch (Exception ignored) {}
 
-        // Method 2: iterate all cannons, match floor'd offset against hitbox.
-        // Also verify the block at the stored position is non-air: guards against stale
-        // CannonManager entries whose ship moved away (position no longer matches any block).
+        // Method 2: iterate all cannons, match floor'd offset against hitbox
+        // (handles fractional offsets that getCannonsByLocations may miss)
         try {
             for (Cannon cannon : CannonManager.getInstance().getCannonList().values()) {
                 try {
@@ -69,14 +58,14 @@ public final class CannonUtils {
                     if (seen.contains(uid)) continue;
                     if (!worldUID.equals(cannon.getCannonPosition().getWorld())) continue;
                     Vector off = cannon.getCannonPosition().getOffset();
-                    int bx = (int) Math.floor(off.getX());
-                    int by = (int) Math.floor(off.getY());
-                    int bz = (int) Math.floor(off.getZ());
-                    MovecraftLocation mloc = new MovecraftLocation(bx, by, bz);
-                    if (!hitBox.contains(mloc)) continue;
-                    if (world.getBlockAt(bx, by, bz).getType().isAir()) continue;
-                    result.add(cannon);
-                    seen.add(uid);
+                    MovecraftLocation mloc = new MovecraftLocation(
+                            (int) Math.floor(off.getX()),
+                            (int) Math.floor(off.getY()),
+                            (int) Math.floor(off.getZ()));
+                    if (hitBox.contains(mloc)) {
+                        result.add(cannon);
+                        seen.add(uid);
+                    }
                 } catch (Exception ignored) {}
             }
         } catch (Exception ignored) {}
