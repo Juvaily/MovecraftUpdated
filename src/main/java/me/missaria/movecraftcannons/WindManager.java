@@ -3,13 +3,10 @@ package me.missaria.movecraftcannons;
 import net.countercraft.movecraft.CruiseDirection;
 import net.countercraft.movecraft.craft.CraftManager;
 import net.countercraft.movecraft.craft.PlayerCraft;
-import net.countercraft.movecraft.craft.type.CraftType;
-import net.countercraft.movecraft.craft.type.RequiredBlockEntry;
+import net.countercraft.movecraft.craft.Craft;
 import org.bukkit.Bukkit;
-import org.bukkit.Material;
 import org.bukkit.entity.Player;
 
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -48,15 +45,15 @@ public class WindManager {
     private static final int[] STRENGTHS = {0, 1, 2, 3, 2, 1};
 
     private final MovecraftCannonsPlugin plugin;
+    private final HealthBarListener healthBarListener;
     private int period = 0;
     private Direction direction = Direction.random();
     private int generation = 0;
-    private final Map<String, Boolean> woolInFlyCache  = new ConcurrentHashMap<>();
-    private final Map<String, Boolean> woolInMoveCache = new ConcurrentHashMap<>();
     private final Set<UUID> mutedPlayers = ConcurrentHashMap.newKeySet();
 
-    public WindManager(MovecraftCannonsPlugin plugin) {
+    public WindManager(MovecraftCannonsPlugin plugin, HealthBarListener healthBarListener) {
         this.plugin = plugin;
+        this.healthBarListener = healthBarListener;
         long periodTicks = plugin.getConfig().getLong("wind.period_duration_minutes", 10) * 60L * 20L;
         Bukkit.getScheduler().runTaskTimer(plugin, this::advancePeriod, periodTicks, periodTicks);
         Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 20L, 20L);
@@ -83,7 +80,7 @@ public class WindManager {
             if (craft == null || !craft.getCruising()) continue;
             CruiseDirection cruiseDir = craft.getCruiseDirection();
             if (cruiseDir == CruiseDirection.UP || cruiseDir == CruiseDirection.DOWN) continue;
-            if (!hasWoolInFly(craft) && !hasWoolInMove(craft)) continue;
+            if (!healthBarListener.isSailShip(craft)) continue;
             int effect = computeEffect(s, cruiseDir);
             if (effect == 0) continue;
             int[] cv = dirVec(cruiseDir);
@@ -120,38 +117,10 @@ public class WindManager {
         };
     }
 
-    // ── Wool detection ────────────────────────────────────────────────────────
-
-    private boolean hasWoolInFly(PlayerCraft craft) {
-        try {
-            String n = craft.getType().getStringProperty(CraftType.NAME);
-            return n != null && woolInFlyCache.computeIfAbsent(n, k -> checkWoolIn(craft, true));
-        } catch (Exception ignored) { return false; }
-    }
-
-    private boolean hasWoolInMove(PlayerCraft craft) {
-        try {
-            String n = craft.getType().getStringProperty(CraftType.NAME);
-            return n != null && woolInMoveCache.computeIfAbsent(n, k -> checkWoolIn(craft, false));
-        } catch (Exception ignored) { return false; }
-    }
-
-    @SuppressWarnings("unchecked")
-    private boolean checkWoolIn(PlayerCraft craft, boolean flyBlocks) {
-        try {
-            var key = flyBlocks ? CraftType.FLY_BLOCKS : CraftType.MOVE_BLOCKS;
-            Set<RequiredBlockEntry> entries = (Set<RequiredBlockEntry>) craft.getType().getRequiredBlockProperty(key);
-            if (entries != null) for (RequiredBlockEntry e : entries)
-                for (Material m : e.getMaterials())
-                    if (m.name().endsWith("_WOOL")) return true;
-        } catch (Exception ignored) {}
-        return false;
-    }
-
-    /** True if wind affects this craft (wool in flyblocks OR moveblocks). */
-    public boolean isWindAffected(PlayerCraft craft) { return hasWoolInFly(craft) || hasWoolInMove(craft); }
-    /** True for ships with wool in moveblocks (sail gear system applies). */
-    public boolean isSailShip(PlayerCraft craft)     { return hasWoolInMove(craft); }
+    /** True if wind affects this craft (has wool blocks). */
+    public boolean isWindAffected(Craft craft) { return healthBarListener.isSailShip(craft); }
+    /** True for ships with wool blocks (sail gear system applies). */
+    public boolean isSailShip(Craft craft)     { return healthBarListener.isSailShip(craft); }
     /** Current wind effect in blocks/sec for the given cruise direction. */
     public int getEffect(CruiseDirection dir)        { return computeEffect(getStrength(), dir); }
 

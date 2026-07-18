@@ -57,6 +57,7 @@ public class HealthBarListener implements Listener {
     private final Map<UUID, int[]>                    flyMinCount    = new ConcurrentHashMap<>();
     private final Map<UUID, int[]>                    scanCache          = new ConcurrentHashMap<>();
     private final Map<UUID, Map<Material, Integer>>   materialCountCache = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer>                  origWoolCount      = new ConcurrentHashMap<>();
     // Saved cruise state before StatusManager's CraftStatusUpdateEvent fires
     private final Map<UUID, Boolean>          preStatusCruising = new ConcurrentHashMap<>();
     private final Map<UUID, CruiseDirection>  preStatusDir      = new ConcurrentHashMap<>();
@@ -89,6 +90,12 @@ public class HealthBarListener implements Listener {
         int[] sc = scan(uid, craft, entries, fEntries);
         origBlockCount.put(uid, sc[0]);
         int craftSize = sc[0];
+
+        // Count wool for sail system (direct scan, independent of moveblocks config)
+        int woolCount = 0;
+        for (Map.Entry<Material, Integer> e : materialCountCache.getOrDefault(uid, Map.of()).entrySet())
+            if (e.getKey().name().endsWith("_WOOL")) woolCount += e.getValue();
+        origWoolCount.put(uid, woolCount);
         if (!entries.isEmpty()) {
             int[] maxCounts = new int[entries.size()];
             int[] minCounts = new int[entries.size()];
@@ -263,6 +270,7 @@ public class HealthBarListener implements Listener {
         flyMinCount.remove(uid);
         scanCache.remove(uid);
         materialCountCache.remove(uid);
+        origWoolCount.remove(uid);
         preStatusCruising.remove(uid);
         preStatusDir.remove(uid);
         TextDisplay disp = displays.remove(uid);
@@ -389,53 +397,21 @@ public class HealthBarListener implements Listener {
         return text.build();
     }
 
-    /**
-     * Combined moveblock % relative to max (0–100) for sail-gear thresholds.
-     * If the craft has any wool entry in moveblocks, sums ALL moveblock entries.
-     * Returns 100 if no wool entry found (not a sail ship).
-     */
-    public double getSailWoolRawPct(Craft craft) {
+    /** True if this craft has wool blocks (sail system applies). */
+    public boolean isSailShip(Craft craft) {
+        return origWoolCount.getOrDefault(craft.getUUID(), 0) > 0;
+    }
+
+    /** Current wool % relative to wool count at detection time (0–100). */
+    public double getWoolPct(Craft craft) {
         UUID uid = craft.getUUID();
-        int[] sc = scanCache.get(uid);
-        if (sc == null) return 100.0;
-        List<RequiredBlockEntry> entries = moveEntries.getOrDefault(uid, List.of());
-        int[] origE = origEntryCount.getOrDefault(uid, new int[0]);
-
-        boolean hasWool = false;
-        for (int i = 0; i < entries.size(); i++) {
-            if (origE.length <= i || origE[i] <= 0) continue;
-            try {
-                for (Material m : entries.get(i).getMaterials())
-                    if (m.name().endsWith("_WOOL")) { hasWool = true; break; }
-            } catch (Exception ignored) {}
-            if (hasWool) break;
-        }
-        if (!hasWool) return 100.0;
-
-        int woolCurr = 0, woolOrig = 0;
-        int otherCurr = 0, otherOrig = 0;
-        for (int i = 0; i < entries.size(); i++) {
-            if (origE.length <= i || origE[i] <= 0) continue;
-            int curr = sc.length > 2 + i ? sc[2 + i] : 0;
-            boolean isWool = false;
-            try {
-                for (Material m : entries.get(i).getMaterials())
-                    if (m.name().endsWith("_WOOL")) { isWool = true; break; }
-            } catch (Exception ignored) {}
-            if (isWool) {
-                woolCurr += curr;
-                woolOrig += origE[i];
-            } else if (curr > 0) {
-                otherCurr += curr;
-                otherOrig += origE[i];
-            }
-        }
-        // No wool at all on ship: fall back to other moveblocks
-        if (woolCurr == 0 && otherOrig > 0)
-            return Math.max(0.0, Math.min(100.0, (double) otherCurr / otherOrig * 100.0));
-        if (woolOrig <= 0) return 0.0;
-        // Wool present: other blocks present on ship boost the total
-        return Math.max(0.0, Math.min(100.0, (double)(woolCurr + otherCurr) / woolOrig * 100.0));
+        int orig = origWoolCount.getOrDefault(uid, 0);
+        if (orig <= 0) return 100.0;
+        Map<Material, Integer> cache = materialCountCache.getOrDefault(uid, Map.of());
+        int curr = 0;
+        for (Map.Entry<Material, Integer> e : cache.entrySet())
+            if (e.getKey().name().endsWith("_WOOL")) curr += e.getValue();
+        return Math.max(0.0, Math.min(100.0, (double) curr / orig * 100.0));
     }
 
     /** Health bar lines for the pilot's sidebar HUD (legacy §-color strings). */

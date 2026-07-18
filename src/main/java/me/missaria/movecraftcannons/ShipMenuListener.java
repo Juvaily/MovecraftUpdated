@@ -162,7 +162,7 @@ public class ShipMenuListener implements Listener {
         boolean isSail = windManager.isSailShip(craft);
         UUID uid = player.getUniqueId();
         SailGear gear = isSail ? sailGears.getOrDefault(uid, SailGear.FULL) : SailGear.FULL;
-        double woolPct = isSail ? healthBarListener.getSailWoolRawPct(craft) : 100.0;
+        double woolPct = isSail ? healthBarListener.getWoolPct(craft) : 100.0;
         // anchorMode: sails intentionally down (enough wool to raise them but chose NONE)
         boolean anchorMode = isSail && gear == SailGear.NONE && woolPct >= 30.0;
         CruiseDirection curDir;
@@ -585,7 +585,7 @@ public class ShipMenuListener implements Listener {
     @SuppressWarnings("unchecked")
     private void buildSailButtons(Inventory inv, Consumer<Player>[] actions, Player player,
                                   PlayerCraft craft, SailGear current) {
-        double woolPct = healthBarListener.getSailWoolRawPct(craft);
+        double woolPct = healthBarListener.getWoolPct(craft);
         // 0-30%: only NONE; 30-70%: NONE+HALF; 70-100%: all
         boolean canHalf = woolPct >= 30.0;
         boolean canFull = woolPct >= 70.0;
@@ -650,7 +650,7 @@ public class ShipMenuListener implements Listener {
     }
 
     private void setSailGear(Player player, PlayerCraft craft, SailGear gear) {
-        double woolPct = healthBarListener.getSailWoolRawPct(craft);
+        double woolPct = healthBarListener.getWoolPct(craft);
         boolean allowed = switch (gear) {
             case FULL -> woolPct >= 70.0;
             case HALF -> woolPct >= 30.0;
@@ -837,7 +837,7 @@ public class ShipMenuListener implements Listener {
             if (p == null) continue;
             PlayerCraft craft = CraftManager.getInstance().getCraftByPlayer(p);
             if (craft == null || !craft.getCruising()) continue;
-            if (healthBarListener.getSailWoolRawPct(craft) < 30.0) continue; // oars mode
+            if (healthBarListener.getWoolPct(craft) < 30.0) continue; // oars mode
             craft.setCruising(false);
         }
     }
