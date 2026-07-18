@@ -402,16 +402,18 @@ public class HealthBarListener implements Listener {
         return origWoolCount.getOrDefault(craft.getUUID(), 0) > 0;
     }
 
-    /** Current wool % relative to wool count at detection time (0–100). */
+    /** Current wool % where 100% = 35% of total ship blocks at detection time (0–100). */
     public double getWoolPct(Craft craft) {
         UUID uid = craft.getUUID();
-        int orig = origWoolCount.getOrDefault(uid, 0);
-        if (orig <= 0) return 100.0;
+        if (origWoolCount.getOrDefault(uid, 0) <= 0) return 100.0;
+        int totalOrig = origBlockCount.getOrDefault(uid, 0);
+        if (totalOrig <= 0) return 100.0;
+        double target = totalOrig * 0.35;
         Map<Material, Integer> cache = materialCountCache.getOrDefault(uid, Map.of());
         int curr = 0;
         for (Map.Entry<Material, Integer> e : cache.entrySet())
             if (e.getKey().name().endsWith("_WOOL")) curr += e.getValue();
-        return Math.max(0.0, Math.min(100.0, (double) curr / orig * 100.0));
+        return Math.max(0.0, Math.min(100.0, curr / target * 100.0));
     }
 
     /** Health bar lines for the pilot's sidebar HUD (legacy §-color strings). */
