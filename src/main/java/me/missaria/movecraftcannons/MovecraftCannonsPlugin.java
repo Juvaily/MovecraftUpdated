@@ -35,9 +35,11 @@ public class MovecraftCannonsPlugin extends JavaPlugin {
         wasdListener = new WasdListener(this, windManager, healthBar);
         getServer().getPluginManager().registerEvents(wasdListener, this);
         getServer().getPluginManager().registerEvents(new CommandBlockListener(), this);
-        AimListener aimListener = new AimListener(this);
+        CannonActivationListener cannonActivation = new CannonActivationListener();
+        getServer().getPluginManager().registerEvents(cannonActivation, this);
+        AimListener aimListener = new AimListener(this, cannonActivation);
         getServer().getPluginManager().registerEvents(aimListener, this);
-        shipMenu = new ShipMenuListener(this, windManager, aimListener, healthBar);
+        shipMenu = new ShipMenuListener(this, windManager, aimListener, healthBar, cannonActivation);
         getServer().getPluginManager().registerEvents(shipMenu, this);
         TurretListener turretListener = new TurretListener(this);
         getServer().getPluginManager().registerEvents(turretListener, this);

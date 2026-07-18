@@ -21,6 +21,17 @@ public final class CannonUtils {
 
     private CannonUtils() {}
 
+    /** Returns only cannons whose UID is in {@code activated}. */
+    public static List<Cannon> findCannonsOnCraft(Craft craft, java.util.Set<UUID> activated) {
+        if (activated.isEmpty()) return List.of();
+        List<Cannon> result = new ArrayList<>();
+        for (Cannon c : findCannonsOnCraft(craft)) {
+            try { if (activated.contains(c.getUID())) result.add(c); }
+            catch (Exception ignored) {}
+        }
+        return result;
+    }
+
     /**
      * Finds all cannons on the craft using two complementary approaches:
      * 1. CannonManager.getCannonsByLocations() — Cannons' own lookup by location list

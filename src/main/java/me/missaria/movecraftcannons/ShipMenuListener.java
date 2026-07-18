@@ -85,12 +85,16 @@ public class ShipMenuListener implements Listener {
 
     public void setTurretListener(TurretListener tl) { this.turretListener = tl; }
 
+    private final CannonActivationListener cannonActivation;
+
     public ShipMenuListener(MovecraftCannonsPlugin plugin, WindManager windManager,
-                            AimListener aimListener, HealthBarListener healthBarListener) {
+                            AimListener aimListener, HealthBarListener healthBarListener,
+                            CannonActivationListener cannonActivation) {
         this.plugin = plugin;
         this.windManager = windManager;
         this.aimListener = aimListener;
         this.healthBarListener = healthBarListener;
+        this.cannonActivation = cannonActivation;
         Bukkit.getScheduler().runTaskTimer(plugin, this::tickManualCruise, 20L, 20L);
         Bukkit.getScheduler().runTaskTimer(plugin, this::enforceAnchorMode, 1L, 1L);
     }
@@ -274,7 +278,7 @@ public class ShipMenuListener implements Listener {
                 anchorMode ? null : p -> applyCruise(p, craft, bwd, gear));
 
         // Cannon data: types + broadside groupings (player-yaw relative)
-        List<Cannon> allCannons = findCannonsOnCraft(craft);
+        List<Cannon> allCannons = findCannonsOnCraft(craft, player);
 
         BlockFace portFace = cruiseDirToFace(lft);
         BlockFace stbdFace = cruiseDirToFace(rgt);
@@ -1043,8 +1047,8 @@ public class ShipMenuListener implements Listener {
 
     // ── Cannon actions ────────────────────────────────────────────────────────
 
-    private List<Cannon> findCannonsOnCraft(net.countercraft.movecraft.craft.Craft craft) {
-        return CannonUtils.findCannonsOnCraft(craft);
+    private List<Cannon> findCannonsOnCraft(net.countercraft.movecraft.craft.Craft craft, Player player) {
+        return CannonUtils.findCannonsOnCraft(craft, cannonActivation.getActivated(player.getUniqueId()));
     }
 
     private CannonsAPI getCannonsAPI() {
@@ -1118,7 +1122,7 @@ public class ShipMenuListener implements Listener {
     }
 
     private void loadAllCannons(Player player, PlayerCraft craft) {
-        List<Cannon> cannons = findCannonsOnCraft(craft);
+        List<Cannon> cannons = findCannonsOnCraft(craft, player);
         if (cannons.isEmpty()) {
             player.sendMessage(Lang.msg("msg.no_cannons", player, NamedTextColor.YELLOW));
             return;
@@ -1158,7 +1162,7 @@ public class ShipMenuListener implements Listener {
             player.sendMessage(Lang.msg("msg.cannons_unavailable", player, NamedTextColor.RED));
             return;
         }
-        List<Cannon> all = new ArrayList<>(findCannonsOnCraft(craft));
+        List<Cannon> all = new ArrayList<>(findCannonsOnCraft(craft, player));
         if (turretListener != null)
             all.addAll(turretListener.getAttachedTurretCannons(craft));
         if (all.isEmpty()) {

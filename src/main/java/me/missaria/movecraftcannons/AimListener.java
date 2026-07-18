@@ -49,6 +49,7 @@ public class AimListener implements Listener {
     private static final Material IMPACT_COLOR   = Material.RED_STAINED_GLASS;
 
     private final MovecraftCannonsPlugin plugin;
+    private final CannonActivationListener cannonActivation;
 
     private final Map<UUID, Map<BlockFace, Cannon>> aimGroups      = new ConcurrentHashMap<>();
     private final Map<UUID, BukkitTask>             aimTasks       = new ConcurrentHashMap<>();
@@ -56,8 +57,9 @@ public class AimListener implements Listener {
     // Last saved yaw/pitch for each aiming player (used by doFire to set angles at fire time)
     private final Map<UUID, float[]>                lastAimAngles  = new ConcurrentHashMap<>();
 
-    public AimListener(MovecraftCannonsPlugin plugin) {
+    public AimListener(MovecraftCannonsPlugin plugin, CannonActivationListener cannonActivation) {
         this.plugin = plugin;
+        this.cannonActivation = cannonActivation;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -110,7 +112,7 @@ public class AimListener implements Listener {
     // ── Start ─────────────────────────────────────────────────────────────────
 
     private void startAiming(Player player, PlayerCraft craft) {
-        List<Cannon> all = CannonUtils.findCannonsOnCraft(craft);
+        List<Cannon> all = CannonUtils.findCannonsOnCraft(craft, cannonActivation.getActivated(player.getUniqueId()));
         if (all.isEmpty()) {
             player.sendMessage(Lang.msg("msg.no_cannons", player, NamedTextColor.YELLOW));
             return;

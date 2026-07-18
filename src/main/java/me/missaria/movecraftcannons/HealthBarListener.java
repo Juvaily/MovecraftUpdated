@@ -468,6 +468,15 @@ public class HealthBarListener implements Listener {
 
         if (sc[1] == 1) lines.add("§c§l" + Lang.get("health.fire", pilot));
 
+        if (isSailShip(craft)) {
+            double wPct = getWoolPct(craft);
+            String wCol = wPct >= 70.0 ? "§a" : wPct >= 30.0 ? "§e" : "§c";
+            int wFill = (int) Math.round(wPct / 20.0);
+            lines.add("§7⛵ Паруса " + wCol + "§l" + "█".repeat(wFill)
+                    + "§8§l" + "░".repeat(5 - wFill)
+                    + " " + wCol + String.format("%.0f%%", wPct));
+        }
+
         return lines;
     }
 
