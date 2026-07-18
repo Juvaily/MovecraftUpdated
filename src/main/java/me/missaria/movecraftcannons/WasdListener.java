@@ -208,6 +208,7 @@ public class WasdListener implements Listener {
                 latestDir.remove(uid); latestTime.remove(uid); return;
             }
 
+            if (craft.getDisabled()) craft.setDisabled(false);
             craft.translate(dir[0], 0, dir[1]);
 
             if (plugin.isDebug())
@@ -275,12 +276,14 @@ public class WasdListener implements Listener {
         int[] fwd = arcFwdVec(pilot != null ? pilot.getLocation().getYaw() : 0f);
         int dist   = arcDist(craft);
 
+        if (craft.getDisabled()) craft.setDisabled(false);
         try { craft.translate(fwd[0] * dist, 0, fwd[1] * dist); } catch (Exception ignored) {}
 
         int[] newFwd = rotation == MovecraftRotation.CLOCKWISE
                 ? new int[]{-fwd[1], fwd[0]} : new int[]{fwd[1], -fwd[0]};
 
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (craft.getDisabled()) craft.setDisabled(false);
             try {
                 HitBox hb = craft.getHitBox();
                 craft.rotate(rotation, new MovecraftLocation(
@@ -290,6 +293,7 @@ public class WasdListener implements Listener {
             } catch (Exception ignored) {}
 
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (craft.getDisabled()) craft.setDisabled(false);
                 try { craft.translate(newFwd[0] * dist, 0, newFwd[1] * dist); } catch (Exception ignored) {}
                 turningCrafts.remove(craftId);
             }, 6L);
