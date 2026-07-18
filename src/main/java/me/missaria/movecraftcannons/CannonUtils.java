@@ -49,11 +49,9 @@ public final class CannonUtils {
             }
         } catch (Exception ignored) {}
 
-        // Method 2: iterate all cannons, match floor'd offset against hitbox bounding box
-        // (with 3-block margin so barrel tips extending beyond the hull are still matched).
-        int minX = hitBox.getMinX() - 3, maxX = hitBox.getMaxX() + 3;
-        int minY = hitBox.getMinY() - 3, maxY = hitBox.getMaxY() + 3;
-        int minZ = hitBox.getMinZ() - 3, maxZ = hitBox.getMaxZ() + 3;
+        // Method 2: iterate all cannons, match floor'd offset against the hitbox.
+        // Also verify the block at the stored position is non-air: guards against stale
+        // CannonManager entries whose ship moved away (position no longer matches any block).
         try {
             for (Cannon cannon : CannonManager.getInstance().getCannonList().values()) {
                 try {
@@ -64,10 +62,11 @@ public final class CannonUtils {
                     int bx = (int) Math.floor(off.getX());
                     int by = (int) Math.floor(off.getY());
                     int bz = (int) Math.floor(off.getZ());
-                    if (bx >= minX && bx <= maxX && by >= minY && by <= maxY && bz >= minZ && bz <= maxZ) {
-                        result.add(cannon);
-                        seen.add(uid);
-                    }
+                    MovecraftLocation mloc = new MovecraftLocation(bx, by, bz);
+                    if (!hitBox.contains(mloc)) continue;
+                    if (world.getBlockAt(bx, by, bz).getType().isAir()) continue;
+                    result.add(cannon);
+                    seen.add(uid);
                 } catch (Exception ignored) {}
             }
         } catch (Exception ignored) {}
